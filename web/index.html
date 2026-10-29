@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kjøreverk · sentral server</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="dot" id="serverDot"></span> Kjøreverk <span class="muted" id="serverInfo"></span></div>
+  <nav id="nav">
+    <a href="#/overview" data-page="overview">Oversikt</a>
+    <a href="#/find" data-page="find">Finn data</a>
+    <a href="#/trend" data-page="trend">Trend</a>
+    <a href="#/export" data-page="export">Eksport</a>
+    <a href="#/rules" data-page="rules">Regler</a>
+    <a href="#/events" data-page="events">Hendelser</a>
+    <a href="#/vehicles" data-page="vehicles">Kjøreverk</a>
+  </nav>
+  <div class="clock" id="clock"></div>
+</header>
+<main id="main"></main>
+<script src="shell.js"></script>
+<script src="pages/overview.js"></script>
+</body>
+</html>

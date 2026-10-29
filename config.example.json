@@ -1,0 +1,44 @@
+{
+  "_notes": [
+    "Oppsettet for kjoreverk-server. Kopier filen til /etc/kjoreverk-server/config.json (eller pek på den med --config).",
+    "Alt som ikke står her, får standardverdien under. Databasen: 'db' er innstillingene til pg (host, port, database, user, password), eller 'url'.",
+    "ingest.maxBatchBytes er største batch pakket ut (sendes til recorderen i /hello). ingest.maxConcurrent er hvor mange batcher som lagres samtidig; resten får 503 med retryAfter.",
+    "retention er i dager; 0 betyr behold for alltid. Med TimescaleDB blir det en policy i databasen, ellers sletter serveren selv én gang i døgnet."
+  ],
+  "port": 8090,
+  "host": "0.0.0.0",
+  "db": {
+    "host": "/var/run/postgresql",
+    "database": "kjoreverk",
+    "user": "kjoreverk",
+    "password": "",
+    "max": 10
+  },
+  "ingest": {
+    "maxBatchBytes": 5000000,
+    "maxConcurrent": 4,
+    "maxPointsPerBatch": 200000
+  },
+  "history": {
+    "maxRows": 60000,
+    "maxTags": 8,
+    "maxPoints": 10000,
+    "maxDays": 400,
+    "sessionGapSeconds": 60
+  },
+  "rollup": {
+    "everySeconds": 20
+  },
+  "retention": {
+    "rawDays": 400,
+    "textDays": 400,
+    "eventDays": 0,
+    "aggDays": 0,
+    "batchDays": 7,
+    "clockDays": 90
+  },
+  "web": {
+    "enabled": true
+  },
+  "log": "info"
+}

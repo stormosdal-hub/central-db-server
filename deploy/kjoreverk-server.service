@@ -1,0 +1,31 @@
+# systemd-enheten for den sentrale serveren. Installeres av deploy/install.sh til
+# /etc/systemd/system/kjoreverk-server.service. Loggen: journalctl -u kjoreverk-server -f
+[Unit]
+Description=Kjoreverk central server (API for the recorders, history, rules and web page)
+Documentation=file:///opt/kjoreverk-server/README.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=kjoreverk
+Group=kjoreverk
+WorkingDirectory=/opt/kjoreverk-server
+ExecStart=/usr/bin/node /opt/kjoreverk-server/server.js --config /etc/kjoreverk-server/config.json
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+# stopp: serveren svarer ferdig på det som er i gang, og lukker databasen
+KillSignal=SIGTERM
+TimeoutStopSec=20
+# litt herding: tjenesten trenger bare å lese sine egne filer og snakke med databasen
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target
