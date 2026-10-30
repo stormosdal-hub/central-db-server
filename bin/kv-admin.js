@@ -4,6 +4,9 @@
  * kv-admin - kommandolinjen for serveren: kjøreverk, nøkler, regler og brukere (docs/PLAN.md §5.3).
  * Det samme kommer på web-siden etter hvert; alt her logges i audit_log.
  *
+ * På serveren kjøres den med sudo: sudo kv-admin vehicle list. Den leser oppsettfilen og filene du gir
+ * den som root, og kobler til databasen som brukeren kjoreverk, slik tjenesten gjør (lib/run-as.js).
+ *
  *   kv-admin migrate                              kjør migreringene (serveren gjør det også ved oppstart)
  *   kv-admin status                               databasen og kjøreverkene i korte trekk
  *
@@ -41,6 +44,8 @@ const { load } = require('../lib/config');
 const Db = require('../lib/db');
 const admin = require('../lib/admin');
 const rules = require('../lib/rules');
+const { vehicleByCode } = require('../lib/auth');
+const { becomeDbUser, explain } = require('../lib/run-as');
 
 const args = process.argv.slice(2);
 const flags = {};
@@ -53,6 +58,7 @@ for (let i = 0; i < args.length; i++) {
   } else words.push(a);
 }
 const WHO = `cli:${process.env.SUDO_USER || os.userInfo().username}@${os.hostname()}`;
+const ME = process.env.SUDO_USER ? 'sudo kv-admin' : 'kv-admin';   // i meldingene: slik den ble startet
 
 const fmtTime = ms => (ms === null || ms === undefined ? '-' : new Date(ms).toISOString().replace('T', ' ').slice(0, 19));
 const ago = ms => {
@@ -83,11 +89,15 @@ function ask(question, hidden) {
   });
 }
 const target = s => (String(s).startsWith('vehicle:') ? { vehicle: String(s).slice(8) } : { set: String(s) });
+let given = null;   // JSON-filen på kommandolinjen (rules set, vehicle extra), lest i main
 
 async function main() {
   const [cmd, sub, ...rest] = words;
   if (!cmd || cmd === 'help' || flags.help) { console.log(fs.readFileSync(__filename, 'utf8').split('*/')[0].split('\n').slice(3).map(l => l.replace(/^ \*( |$)/, '')).join('\n')); return; }
   const { config, file } = load(flags.config);
+  // filen på kommandolinjen leses før brukerbyttet: brukeren kjoreverk kan ikke lese hjemmemappen din
+  if (((cmd === 'rules' && sub === 'set') || (cmd === 'vehicle' && sub === 'extra' && !flags.none)) && rest[1]) given = readJson(rest[1]);
+  becomeDbUser(config.db);
   const db = new Db(config.db);
   try {
     if (cmd === 'migrate') {
@@ -136,7 +146,7 @@ async function vehicle(db, sub, [code, extra]) {
     case 'add': {
       if (!code) throw new Error('kv-admin vehicle add <code> [--name …] [--rules <set>]');
       await admin.addVehicle(db, { code, name: flags.name, ruleSet: flags.rules, silentAfter: Number(flags['silent-after']), notes: flags.notes, who: WHO });
-      console.log(`${code} added. Make its key with: kv-admin vehicle key ${code}`);
+      console.log(`${code} added. Make its key with: ${ME} vehicle key ${code}`);
       return;
     }
     case 'show': {
@@ -172,7 +182,7 @@ async function vehicle(db, sub, [code, extra]) {
     case 'extra': {
       if (flags.none) { const r = await rules.setVehicleExtra(db, code, null, WHO); console.log(`${code}: the extra rules are removed (rules version ${r.version})`); return; }
       if (!extra) throw new Error('kv-admin vehicle extra <code> <file.json> | --none');
-      const r = await rules.setVehicleExtra(db, code, readJson(extra), WHO, `from ${extra}`);
+      const r = await rules.setVehicleExtra(db, code, given, WHO, `from ${extra}`);
       console.log(`${code}: extra rules set (rules version ${r.version})`);
       return;
     }
@@ -195,13 +205,12 @@ async function rulesCmd(db, sub, [name, file]) {
     }
     case 'set': {
       if (!name || !file) throw new Error('kv-admin rules set <set> <file.json> [--note …]');
-      const r = await rules.setRuleSet(db, name, readJson(file), WHO, flags.note || `from ${file}`);
+      const r = await rules.setRuleSet(db, name, given, WHO, flags.note || `from ${file}`);
       console.log(`rule set ${name} saved as version ${r.version}; the vehicles using it fetch it within a few batches`);
       return;
     }
     case 'delete': await rules.deleteRuleSet(db, name, WHO); console.log(`rule set ${name} deleted`); return;
     case 'effective': {
-      const { vehicleByCode } = require('../lib/auth');
       const v = await vehicleByCode(db, name);
       if (!v) throw new Error(`no vehicle named ${name}`);
       console.log(JSON.stringify(await rules.effectiveFor(db, v), null, 2));
@@ -245,4 +254,4 @@ async function user(db, sub, [name]) {
   }
 }
 
-main().catch(e => { console.error(e.message || e); process.exit(1); });
+main().catch(e => { console.error(explain(e, 'kv-admin')); process.exit(1); });

@@ -24,6 +24,7 @@ const crypto = require('crypto');
 const { load } = require('../lib/config');
 const Db = require('../lib/db');
 const admin = require('../lib/admin');
+const { becomeDbUser, explain } = require('../lib/run-as');
 
 const args = process.argv.slice(2);
 const opt = (name, d) => { const i = args.indexOf('--' + name); return i >= 0 && i + 1 < args.length ? args[i + 1] : d; };
@@ -223,6 +224,7 @@ class Vehicle {
 // ---------------------------------------------------------------- kjøringen
 async function main() {
   const { config } = load(opt('config', null));
+  becomeDbUser(config.db);   // med sudo: koble til som brukeren kjoreverk, som kv-admin
   const db = new Db(config.db);
   await db.init();
   const vehicles = [];
@@ -290,4 +292,4 @@ async function main() {
   process.exit(stats.errors > stats.batches / 10 ? 1 : 0);
 }
 
-main().catch(e => { console.error(e); process.exit(1); });
+main().catch(e => { console.error(explain(e, 'node test/simulate.js')); process.exit(1); });

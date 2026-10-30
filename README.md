@@ -106,7 +106,7 @@ rotfilsystem (eller montert der PostgreSQL skal ligge). Alt er Debian-pakker og 
    ```bash
    systemctl status kjoreverk-server
    journalctl -u kjoreverk-server -n 30 --no-pager
-   kv-admin status
+   sudo kv-admin status
    curl http://localhost:8090/api/health
    ```
 
@@ -153,8 +153,8 @@ Hvert kjøreverk registreres med en kort kode, gjerne `kv01` … `kv42`, lik ver
 sin egen nøkkel, som legges inn på Pi-en ved installasjonen og lagres bare som SHA-256 på serveren.
 
 ```bash
-kv-admin vehicle add kv07 --name "Kjøreverk 7"
-kv-admin vehicle key kv07          # skriver ut nøkkelen, én gang
+sudo kv-admin vehicle add kv07 --name "Kjøreverk 7"
+sudo kv-admin vehicle key kv07          # skriver ut nøkkelen, én gang
 ```
 
 På Pi-en i kjøreverket, i `/etc/hmi-recorder.json` (se `README_systemd-service.md` i HMI-prosjektet):
@@ -164,9 +164,15 @@ På Pi-en i kjøreverket, i `/etc/hmi-recorder.json` (se `README_systemd-service
 ```
 
 Recorderens logg skal så si `the central server answers` og `Recording rules version …`, og
-`kv-admin vehicle list` viser kjøreverket med siste batch og recorder-versjon.
+`sudo kv-admin vehicle list` viser kjøreverket med siste batch og recorder-versjon.
 
-| Kommando | Gjør |
+**Kjør `kv-admin` med sudo.** Oppsettfilen har databaseinnstillingene, så bare root og gruppen
+`kjoreverk` kan lese den. PostgreSQL slipper bare inn OS-brukeren `kjoreverk` som databasebrukeren
+`kjoreverk` (peer-innlogging over unix-socket). Med sudo leser `kv-admin` oppsettfilen og filene du gir
+den som root, og bytter så til brukeren `kjoreverk` før den kobler til. I loggen står du likevel som den
+som gjorde det (`cli:storm@…`, fra `SUDO_USER`). Uten sudo får du `EACCES` på oppsettfilen.
+
+| Kommando (med `sudo` foran) | Gjør |
 |---|---|
 | `kv-admin vehicle list` | alle kjøreverkene: aktiv, nøkkel, regelsett og versjon, siste batch, data fram til, recorder, klokke |
 | `kv-admin vehicle show kv07` | alt om ett, med de siste øktene |
@@ -200,17 +206,17 @@ Formatet står i [docs/PROTOKOLL.md](docs/PROTOKOLL.md) §7, og
   og feilene skrives ut (`Rule 2: the smallest change is a number, like 50, or a percentage, like 2%`).
 
 ```bash
-kv-admin rules list
-kv-admin rules show default > regler.json        # rediger
-kv-admin rules set default regler.json --note "dødbånd på hastigheten"
-kv-admin rules set stille docs/examples/rules-example.json
-kv-admin vehicle rules kv07 --set stille
-kv-admin rules effective kv07                     # det kv07 får fra GET /rules
+sudo kv-admin rules list
+sudo kv-admin rules show default > regler.json        # rediger
+sudo kv-admin rules set default regler.json --note "dødbånd på hastigheten"
+sudo kv-admin rules set stille docs/examples/rules-example.json
+sudo kv-admin vehicle rules kv07 --set stille
+sudo kv-admin rules effective kv07                     # det kv07 får fra GET /rules
 
 # pauser, for eksempel under vedlikehold: alle tagger på kv07 i 2 timer
-kv-admin rules pause vehicle:kv07 --tags "*" --minutes 120 --reason "service"
-kv-admin rules pause default --tags "kv_1.reals_*" --until 2026-11-01T06:00:00Z
-kv-admin rules resume vehicle:kv07 all
+sudo kv-admin rules pause vehicle:kv07 --tags "*" --minutes 120 --reason "service"
+sudo kv-admin rules pause default --tags "kv_1.reals_*" --until 2026-11-01T06:00:00Z
+sudo kv-admin rules resume vehicle:kv07 all
 ```
 
 Pauser som har vært over i mer enn 7 dager, tas ut av listen ved neste lagring. Historikken ligger i
@@ -273,7 +279,7 @@ likt, men ingenting komprimeres (regn med omtrent 100 byte per punkt med indeks,
 døgnet med 18 millioner punkter), og slettingen gjør serveren selv én gang i døgnet med `DELETE`, som
 tar tid på store tabeller. 500 GB holder da i noen måneder; stram inn reglene, eller legg til
 TimescaleDB. **Å legge den til senere** krever at tabellene bygges om: ta `pg_dump`, slett og lag
-databasen på nytt med utvidelsen, kjør migreringene (`kv-admin migrate`), og last dataene inn igjen
+databasen på nytt med utvidelsen, kjør migreringene (`sudo kv-admin migrate`), og last dataene inn igjen
 med `pg_restore --data-only`. Gjør det mens mengden er liten.
 
 **Historikken (`/history`)** velger kilde per tag etter hvor mange rader det blir: rådataene når
@@ -285,7 +291,7 @@ den rekkefølgen de kom. `null` settes inn der recorderen har meldt et hull og d
 tagger 20–50 ms, men med lite data.
 
 **Hvor mye plass:** oversikten viser størrelsen på databasen og antall punkter per kjøreverk siste
-døgn. `kv-admin status` viser det samme. Med TimescaleDB gir `SELECT * FROM hypertable_compression_stats('sample')`
+døgn. `sudo kv-admin status` viser det samme. Med TimescaleDB gir `SELECT * FROM hypertable_compression_stats('sample')`
 i `psql` hvor mye komprimeringen sparer.
 
 ## 8. Klokka
@@ -353,7 +359,7 @@ Oppsettfilen røres ikke. Recorderne tåler bruddet.
 setter den uttrykkelig). En UPS på serveren er likevel lurt.
 
 **Varsel om stille kjøreverk:** oversikten merker et kjøreverk rødt når det ikke har sendt på mer enn
-`silent_after_s` (2 timer som standard, `kv-admin vehicle set kv07 --silent-after 600`).
+`silent_after_s` (2 timer som standard, `sudo kv-admin vehicle set kv07 --silent-after 600`).
 
 ## 10. Utvikling og test
 

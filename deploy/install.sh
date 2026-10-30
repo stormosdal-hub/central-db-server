@@ -112,9 +112,9 @@ systemctl --no-pager --lines=5 status kjoreverk-server.service || true
 cat <<EOF
 
 Done. Next:
-  kv-admin vehicle add kv01 --name "Kjøreverk 1"     # one per vehicle
-  kv-admin vehicle key kv01                          # the key for /etc/hmi-recorder.json on that Pi
-  kv-admin status
+  sudo kv-admin vehicle add kv01 --name "Kjøreverk 1"     # one per vehicle
+  sudo kv-admin vehicle key kv01                          # the key for /etc/hmi-recorder.json on that Pi
+  sudo kv-admin status
   http://$(hostname -I | awk '{print $1}'):$(grep -o '"port": *[0-9]*' $CONF_DIR/config.json | grep -o '[0-9]*' || echo 8090)/
 Logs: journalctl -u kjoreverk-server -f
 The clock: see README §Klokka (chrony as the NTP server for the vehicles).
