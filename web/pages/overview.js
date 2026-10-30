@@ -28,7 +28,7 @@
     ].map(([k, v, c]) => `<div class="card"><div class="k">${k}</div><div class="v ${c}">${v}</div></div>`).join('');
 
     const tbody = root.querySelector('tbody');
-    if (!vs.length) { tbody.innerHTML = '<tr><td colspan="11" class="empty">Ingen kjøreverk ennå. Legg til med <code>sudo kv-admin vehicle add kv01</code> og lag nøkkelen med <code>sudo kv-admin vehicle key kv01</code>.</td></tr>'; return; }
+    if (!vs.length) { tbody.innerHTML = '<tr><td colspan="11" class="empty">Ingen kjøreverk ennå. Legg dem til på siden <a href="#/vehicles">Kjøreverk</a>, eller med <code>sudo kv-admin vehicle add kv01</code> på databasemaskinen.</td></tr>'; return; }
     tbody.innerHTML = vs.map(v => {
       const [txt, cls] = status(v);
       const clock = v.clock_synced === null ? '–' : v.clock_synced ? `<span class="badge ok">synk${v.clock_offset_ms !== null ? ` ${v.clock_offset_ms > 0 ? '+' : ''}${v.clock_offset_ms} ms` : ''}</span>` : '<span class="badge bad">ikke synk</span>';
@@ -57,6 +57,7 @@
     const box = root.querySelector('.detail');
     box.style.display = 'block';
     box.innerHTML = `<span class="close" title="Lukk">✕</span><h2>${esc(code)}</h2><p class="muted">henter …</p>`;
+    box.scrollIntoView({ behavior: 'smooth', block: 'start' });
     box.querySelector('.close').onclick = () => { box.style.display = 'none'; selected = null; };
     try {
       const v = await api(`/vehicles/${encodeURIComponent(code)}`);

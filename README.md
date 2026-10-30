@@ -28,9 +28,9 @@ med 500 GB NVMe, og kan flyttes til en annen maskin uten at noe endres i kjørev
 1. [Status](#1-status)
 2. [Installasjon på Pi 5-en](#2-installasjon-på-pi-5-en)
 3. [Oppsettfilen](#3-oppsettfilen)
-4. [Kjøreverk og nøkler](#4-kjøreverk-og-nøkler)
+4. [Legge til et kjøreverk](#4-legge-til-et-kjøreverk): på databasemaskinen og på Pi-en, og feilsøking
 5. [Reglene](#5-reglene)
-6. [API-et og web-siden](#6-api-et-og-web-siden)
+6. [API-et og web-siden](#6-api-et-og-web-siden): også innlogging og roller
 7. [Databasen](#7-databasen)
 8. [Klokka](#8-klokka)
 9. [Drift](#9-drift): logger, sikkerhetskopi, flytting, oppdatering
@@ -47,10 +47,10 @@ Rekkefølgen fra planen (§5), og hvor langt det er kommet:
 |---|---|---|
 | 1 | Installasjon: PostgreSQL + TimescaleDB, skjemaet som migreringer | **bygd.** `deploy/install.sh`, `db/migrations/001_init.sql`. Installasjonsskriptet er skrevet for Debian på Pi 5, men er ennå ikke kjørt på en ekte Pi |
 | 2 | Mottaket `/hello` og `/ingest`, testskript for 42 kjøreverk, måling | **bygd.** Idempotent på `boot` + `seq`, én transaksjon per batch, mottrykk med 503. `test/simulate.js`. Målt her på en x86-maskin: 3 300 punkter/s lagret med 25 ms per batch; Pi 5-en må måles |
-| 3 | Kjøreverk og nøkler på kommandolinjen | **bygd.** `kv-admin vehicle …` |
+| 3 | Kjøreverk og nøkler: først på kommandolinjen, så på web-siden | **bygd.** `sudo kv-admin vehicle …`, og siden *Kjøreverk*, med innlogging og roller |
 | 4 | `/rules` og siden for reglene | **API-et er bygd**, med regelsett, tillegg per kjøreverk og pauser fra kommandolinjen. Web-siden gjenstår |
 | 5 | `/history` | **bygd.** Rådata, `sample_1m` eller `sample_1h` etter mengden, første punkt ved `from`, tynning med minste og største, `null` i kjente hull og mellom økter |
-| 6 | Web-siden: oversikten, Finn data, trend, eksport | **Skallet og Oversikt er bygd.** Finn data, trend, eksport og innlogging gjenstår |
+| 6 | Web-siden: oversikten, Finn data, trend, eksport | **Skallet, innloggingen, Oversikt og Kjøreverk er bygd.** Finn data, trend og eksport gjenstår |
 | 7 | Hendelser, hull og varsler for stille kjøreverk | Hendelser og hull lagres og vises per kjøreverk i oversikten; «stille» vises med grensen `silent_after_s`. Egen side med filtre gjenstår |
 | 8 | Klokka: chrony som tidsserver | **oppsett beskrevet** (§8, `deploy/chrony-kjoreverk.conf`). GPS senere |
 | 9 | Sikkerhetskopi og flytting | **bygd og beskrevet** (§9), ikke prøvd på en Pi ennå |
@@ -112,9 +112,10 @@ rotfilsystem (eller montert der PostgreSQL skal ligge). Alt er Debian-pakker og 
 
    Web-siden er på `http://<pi-ip>:8090/`.
 4. **Gi serveren et fast navn eller en fast IP-adresse** på nettet, for eksempel `dbserver`. Det er
-   det kjøreverkene får i `/etc/hmi-recorder.json`, og det følger med til en ny maskin senere.
+   det kjøreverkene får som `server` i `/etc/hmi-recorder.json`, og det følger med til en ny maskin senere.
 5. **Klokka:** sett opp chrony som tidsserver for kjøreverkene, [§8](#8-klokka).
-6. **Legg til kjøreverkene** og lag nøklene, [§4](#4-kjøreverk-og-nøkler).
+6. **Lag en bruker for deg selv** (`sudo kv-admin user add <navn> --role admin`), og **legg til
+   kjøreverkene** på siden *Kjøreverk*, [§4](#4-legge-til-et-kjøreverk).
 
 **For hånd, uten skriptet:** `apt install postgresql`, lag rollen og databasen
 (`createuser kjoreverk; createdb -O kjoreverk kjoreverk`), eventuelt `CREATE EXTENSION timescaledb`
@@ -143,48 +144,206 @@ filen, får standardverdien:
 | `retention.textDays`, `eventDays`, `aggDays` | 400, 0, 0 | Tekst, hendelser og sammendragene |
 | `retention.batchDays`, `clockDays` | 7, 90 | Svarene på gamle batcher (til nye forsøk), og klokkeobservasjonene |
 | `web.enabled` | true | Web-siden og `/api/web` |
+| `web.loginToView` | false | `true`: innlogging også for å se web-siden, ikke bare for å endre |
+| `web.sessionDays` | 14 | Hvor lenge en innlogging varer uten bruk |
 | `log` | `info` | `debug` gir en linje per batch og per historikkspørsmål |
 
 Etter en endring: `sudo systemctl restart kjoreverk-server`.
 
-## 4. Kjøreverk og nøkler
+## 4. Legge til et kjøreverk
 
-Hvert kjøreverk registreres med en kort kode, gjerne `kv01` … `kv42`, lik vertsnavnet på Pi-en. Det får
-sin egen nøkkel, som legges inn på Pi-en ved installasjonen og lagres bare som SHA-256 på serveren.
+Et kjøreverk settes opp to steder: **på databasemaskinen** registreres det og får en nøkkel, og **på
+Pi-en i kjøreverket** får recorderen vite hvem den er, hvor serveren er, og nøkkelen.
+
+```
+ Databasemaskinen (denne serveren)                 Pi-en i kjøreverket (hmi-core)
+ ─────────────────────────────────                 ──────────────────────────────
+ 1. Registrer kjøreverket, f.eks. kv52             3. Lag /etc/hmi-recorder.json:
+ 2. Lag nøkkelen ──────── kopier nøkkelen ──────►     { "vehicle": "kv52",
+                                                        "server": "http://dbserver:8090",
+                                                        "token": "<nøkkelen>" }
+                                                    4. Start recorderen på nytt
+ 6. «Sender» på Oversikt og Kjøreverk ◄── data ──  5. Loggen: "the central server answers"
+```
+
+**Første gang:** lag en bruker med rollen admin, så du kan logge inn på web-siden (se [§6](#6-api-et-og-web-siden)):
 
 ```bash
-sudo kv-admin vehicle add kv07 --name "Kjøreverk 7"
-sudo kv-admin vehicle key kv07          # skriver ut nøkkelen, én gang
+sudo kv-admin user add storm --role admin
 ```
 
-På Pi-en i kjøreverket, i `/etc/hmi-recorder.json` (se `README_systemd-service.md` i HMI-prosjektet):
+### 4.1 På databasemaskinen: registrer kjøreverket og lag nøkkelen
 
-```json
-{ "vehicle": "kv07", "server": "http://dbserver:8090", "token": "nøkkelen fra kv-admin" }
+**På web-siden:** åpne `http://<databasemaskinen>:8090/#/vehicles` (menyen *Kjøreverk*), logg inn,
+og trykk **+ Nytt kjøreverk**:
+
+- **Kode** er det kjøreverket heter på serveren, for eksempel `kv52`. Den må være nøyaktig den samme
+  som `"vehicle"` på Pi-en, og den kan ikke endres senere. Bruk gjerne det samme som vertsnavnet til Pi-en.
+- **Navn** og **notater** er bare for deg. **Regelsett** bestemmer hva recorderen lagrer ([§5](#5-reglene));
+  `default` lagrer alt. **Varsel når det har vært stille** er hvor lenge det kan gå uten data før
+  kjøreverket blir rødt på Oversikt.
+- Med **Lag nøkkelen med en gang** avkrysset vises nøkkelen etterpå, sammen med den ferdige filen
+  til Pi-en og kommandoene, med Kopier-knapper.
+
+**Nøkkelen vises bare én gang.** Serveren lagrer bare et fingeravtrykk (SHA-256) av den, så den kan ikke
+hentes fram igjen. Mister du den, trykk **Lag ny nøkkel** på kjøreverket. Den gamle slutter da å
+virke med en gang.
+
+**Eller på kommandolinjen** på databasemaskinen:
+
+```bash
+sudo kv-admin vehicle add kv52 --name "Kjøreverk 52"
+sudo kv-admin vehicle key kv52          # skriver ut nøkkelen, én gang
 ```
 
-Recorderens logg skal så si `the central server answers` og `Recording rules version …`, og
-`sudo kv-admin vehicle list` viser kjøreverket med siste batch og recorder-versjon.
+### 4.2 På Pi-en i kjøreverket: oppsettfilen til recorderen
 
-**Kjør `kv-admin` med sudo.** Oppsettfilen har databaseinnstillingene, så bare root og gruppen
-`kjoreverk` kan lese den. PostgreSQL slipper bare inn OS-brukeren `kjoreverk` som databasebrukeren
-`kjoreverk` (peer-innlogging over unix-socket). Med sudo leser `kv-admin` oppsettfilen og filene du gir
-den som root, og bytter så til brukeren `kjoreverk` før den kobler til. I loggen står du likevel som den
-som gjorde det (`cli:storm@…`, fra `SUDO_USER`). Uten sudo får du `EACCES` på oppsettfilen.
+Recorderen (`hmi-core/recorder.js`) leser oppsettet sitt fra den første av disse filene som finnes:
+
+| Fil | Leses |
+|---|---|
+| `/etc/hmi-recorder.json` | **først. Bruk denne.** |
+| `hmi-core/config/recorder.json` | bare hvis filen i `/etc` mangler |
+| `hmi-core/config/recorder.example.json` | **aldri.** Den viser bare hvilke innstillinger som finnes |
+
+Finnes ingen av de to første, stopper recorderen med *«The recorder needs the central server's
+address …»*, og systemd prøver å starte den igjen hvert 2. sekund. Filen hører hjemme i `/etc` fordi
+nøkkelen da ikke ligger i prosjektmappen, der den kunne havne i git, og fordi den blir liggende når
+du bytter ut `hmi-core` med en nyere versjon.
+
+1. **Lag filen** (logg inn på Pi-en i kjøreverket, for eksempel med ssh):
+
+   ```bash
+   sudo nano /etc/hmi-recorder.json
+   ```
+
+   Lim inn, med dine verdier, lagre med Ctrl+O og Enter, og lukk med Ctrl+X:
+
+   ```json
+   {
+     "vehicle": "kv52",
+     "server": "http://dbserver:8090",
+     "token": "nøkkelen fra databasemaskinen"
+   }
+   ```
+
+   | Felt | Hva |
+   |---|---|
+   | `vehicle` | Koden fra 4.1, nøyaktig lik. Mangler feltet, brukes vertsnavnet til Pi-en |
+   | `server` | Adressen Pi-en når databasemaskinen på: `http://` + navnet eller IP-adressen + `:8090`. Det du skriver i nettleseren for å åpne web-siden, virker som regel. Sjekk fra Pi-en med `curl http://dbserver:8090/api/health`; den skal svare `{"ok":true,…}` |
+   | `token` | Nøkkelen, hele, uten mellomrom |
+
+   `config/recorder.example.json` i `hmi-core` viser resten av innstillingene (køen i RAM, hvor ofte den
+   sender). De trenger du vanligvis ikke.
+2. **Bare root og brukeren recorderen kjører som, skal kunne lese den.** Brukeren står i `User=` i
+   `kjoreverk@.service`; kommandoen under henter den derfra:
+
+   ```bash
+   sudo chown root:"$(systemctl show -p User --value kjoreverk@recorder.service)" /etc/hmi-recorder.json
+   ```
+
+   ```bash
+   sudo chmod 640 /etc/hmi-recorder.json
+   ```
+
+3. **Har du skrevet nøkkelen inn i `recorder.example.json`**, ta den ut igjen, så den ikke havner i git.
+   Er `hmi-core` hentet med git, setter dette filen tilbake (i mappen over `hmi-core`):
+
+   ```bash
+   git checkout -- hmi-core/config/recorder.example.json
+   ```
+
+4. **Start recorderen.** Kjører den allerede som tjeneste:
+
+   ```bash
+   sudo systemctl restart kjoreverk@recorder.service
+   ```
+
+   Første gang må tjenesten lages. Det står i `README_systemd-service.md` i HMI-prosjektet, avsnittet
+   om recorderen. Kort fortalt: `/etc/kjoreverk/instances/recorder.env` med
+   `SCRIPT_ARGS=hmi-core/recorder.js`, og `sudo systemctl enable --now kjoreverk@recorder.service`.
+   Huben (`kjoreverk@hub.service`) må også kjøre: recorderen sender ingenting før den har fått
+   taggene derfra.
+5. **Klokka:** recorderen sender ingenting før Pi-ens klokke er synkronisert (den spør `timedatectl`).
+   Har Pi-en internett, er den vanligvis det. Ellers: pek den på databasemaskinen ([§8](#8-klokka)). Har
+   serveren svart, men klokka ikke blitt synkronisert innen 10 minutter, sender den likevel, merket.
+6. **Sjekk loggen:**
+
+   ```bash
+   journalctl -u kjoreverk@recorder.service -n 30 --no-pager
+   ```
+
+   Den skal si `the central server answers (http://dbserver:8090)` og
+   `Recording rules version … from the central server in use`. På web-siden går statusen til
+   **Sender** innen et halvt minutt, og *Kjøreverk* viser IP-adressen det sender fra og recorder-versjonen.
+
+### 4.3 Feilsøking
+
+**I recorderens logg** på Pi-en i kjøreverket (`journalctl -u kjoreverk@recorder.service -n 50 --no-pager`):
+
+| Loggen sier | Hvorfor | Gjør |
+|---|---|---|
+| `The recorder needs the central server's address, like "server": … in /etc/hmi-recorder.json` | Ingen oppsettfil er lest, for eksempel fordi bare `recorder.example.json` er endret | Lag `/etc/hmi-recorder.json` (4.2) |
+| `The recorder's settings in /etc/hmi-recorder.json can't be read: EACCES` | Brukeren recorderen kjører som, kan ikke lese filen | `chown` i 4.2, steg 2 |
+| `… can't be read:` fulgt av noe om JSON (`Unexpected token`, `Expected …`) | Filen er ikke gyldig JSON: et komma for mye eller for lite, eller manglende anførselstegn | Sammenlign med eksempelet i 4.2 |
+| `the central server can't be reached (connect ECONNREFUSED …)` | Feil port, eller serveren kjører ikke | `curl http://<server>:8090/api/health` fra Pi-en; `systemctl status kjoreverk-server` på databasemaskinen |
+| `… (getaddrinfo ENOTFOUND dbserver)` | Pi-en kjenner ikke navnet | Bruk IP-adressen i `server`, eller legg navnet i `/etc/hosts` |
+| `… (connect ETIMEDOUT …)` / `no answer in 15 s` | Feil IP-adresse, eller en brannmur | Sjekk adressen; `ping` den |
+| `The central server refused this recorder's key for kv52: the key is unknown or has been revoked` | Nøkkelen er feil, ikke kopiert helt, eller en ny er laget siden | Lag en ny nøkkel (4.1) og legg den inn |
+| `… the key belongs to kv52, not kv07` | `vehicle` på Pi-en er ikke koden nøkkelen ble laget for | Rett `vehicle`, eller lag nøkkelen for riktig kode |
+| `… kv52 is disabled on the server` | Kjøreverket er slått av | Kryss av for *Aktiv* på siden Kjøreverk |
+| `the clock isn't synchronized yet (timedatectl): nothing is sent until it is` | Se 4.2, steg 5 | [§8](#8-klokka) |
+
+Etter et avslag på nøkkelen prøver recorderen igjen hvert 5. minutt. Vil du ikke vente, start den på
+nytt.
+
+**På databasemaskinen** står hver avviste nøkkel i serverens logg, med IP-adressen til Pi-en som prøvde:
+
+```bash
+journalctl -u kjoreverk-server -n 50 --no-pager | grep refused
+```
+
+for eksempel `refused POST /hello from 10.0.123.24 (says it is kv52): the key is unknown or has been revoked`.
+
+**Statusen på web-siden:**
+
+| Status | Betyr |
+|---|---|
+| Ingen nøkkel | Kjøreverket er registrert, men har ingen nøkkel. Lag en |
+| Aldri hørt fra | Det har nøkkel, men ingen recorder har koblet til med den. Se recorderens logg |
+| Har hilst, ikke sendt | Recorderen kommer gjennom, men har ikke sendt data. De første sekundene er det normalt. Varer det, er klokka på Pi-en ikke synkronisert, eller huben kjører ikke |
+| Sender | Siste batch kom for under 90 sekunder siden |
+| Venter | Det har sendt før, men ikke de siste 90 sekundene. Recorderen sender hvert 10. sekund, så det varer sjelden |
+| Stille | Ingenting på lenger enn grensen for stille-varselet. Pi-en kan være av, uten nett, eller ha stoppet |
+| Slått av | *Aktiv* er ikke krysset av: recorderen får 403 |
+
+### 4.4 Endre, bytte nøkkel, slå av, slette
+
+Alt gjøres på siden *Kjøreverk*: klikk på et kjøreverk. Navn, notater, grensen for stille-varselet og
+*Aktiv* krever rollen admin. Regelsettet kan også en med rollen rules endre. Et kjøreverk kan bare
+slettes så lenge det ikke har lagret data, for eksempel et som ble lagt til med feil kode. Ellers slås
+det av.
+
+Det samme på kommandolinjen på databasemaskinen. **Kjør `kv-admin` med sudo:** oppsettfilen har
+databaseinnstillingene, så bare root og gruppen `kjoreverk` kan lese den, og PostgreSQL slipper bare inn
+OS-brukeren `kjoreverk` som databasebrukeren `kjoreverk`. Med sudo leser `kv-admin` oppsettfilen og
+filene du gir den som root, og bytter så til brukeren `kjoreverk` før den kobler til. I loggen står du
+likevel som den som gjorde det (`cli:storm@…`). Uten sudo får du `EACCES` på oppsettfilen.
 
 | Kommando (med `sudo` foran) | Gjør |
 |---|---|
 | `kv-admin vehicle list` | alle kjøreverkene: aktiv, nøkkel, regelsett og versjon, siste batch, data fram til, recorder, klokke |
-| `kv-admin vehicle show kv07` | alt om ett, med de siste øktene |
-| `kv-admin vehicle key kv07` | en ny nøkkel; den gamle slutter å virke med en gang |
-| `kv-admin vehicle revoke kv07` | nøkkelen trekkes tilbake, for eksempel for en Pi som er borte. Recorderen får 403 og prøver igjen hvert 5. minutt |
-| `kv-admin vehicle disable kv07` / `enable` | et kjøreverk som ikke skal sende en stund |
-| `kv-admin vehicle set kv07 --name … --silent-after 7200 --notes …` | navn, grensen for «stille»-varselet (sekunder), notater |
-| `kv-admin vehicle rules kv07 --set <navn>` | hvilket regelsett det bruker |
-| `kv-admin vehicle extra kv07 <fil.json>` / `--none` | tillegget: regler og pauser som går foran settets |
+| `kv-admin vehicle show kv52` | alt om ett, med de siste øktene |
+| `kv-admin vehicle key kv52` | en ny nøkkel; den gamle slutter å virke med en gang |
+| `kv-admin vehicle revoke kv52` | nøkkelen trekkes tilbake, for eksempel for en Pi som er borte. Recorderen får 403 og prøver igjen hvert 5. minutt |
+| `kv-admin vehicle disable kv52` / `enable` | et kjøreverk som ikke skal sende en stund |
+| `kv-admin vehicle delete kv52` | sletter et kjøreverk som aldri har lagret data |
+| `kv-admin vehicle set kv52 --name … --silent-after 7200 --notes …` | navn, grensen for stille-varselet (sekunder), notater |
+| `kv-admin vehicle rules kv52 --set <navn>` | hvilket regelsett det bruker |
+| `kv-admin vehicle extra kv52 <fil.json>` / `--none` | tillegget: regler og pauser som går foran settets |
 | `kv-admin status`, `kv-admin audit` | serveren i korte trekk, og hvem som gjorde hva |
 
-Alle endringer logges i `audit_log` med hvem (`cli:<bruker>@<maskin>`) og når.
+Alle endringer logges i `audit_log` med hvem (`web:<bruker>` eller `cli:<bruker>@<maskin>`) og når.
 
 ## 5. Reglene
 
@@ -242,15 +401,48 @@ Pauser som har vært over i mer enn 7 dager, tas ut av listen ved neste lagring.
 - `GET /api/health` svarer `{ ok, version, time, timescale }` uten nøkkel.
 
 **Web-siden** på `/` er vanlig HTML, CSS og JavaScript uten byggesteg (`web/`). Hver side er et skript i
-`web/pages/` med sin del av `/api/web` i `routes/web.js`. Bygd nå: **Oversikt**, med alle kjøreverkene
-(status, siste batch, data fram til, klokke med avvik, recorder-versjon, regelsett og versjon, tagger,
-punkter, hull og alarmer siste døgn), og et klikk på et kjøreverk viser øktene og hullene. Den
-oppdateres hvert 10. sekund. Menyen har plass til resten (Finn data, Trend, Eksport, Regler, Hendelser,
-Kjøreverk), som er beskrevet i planen §4.
+`web/pages/` med sin del av `/api/web` i `routes/web.js`. Bygd nå:
 
-Web-siden har **ingen innlogging ennå**, og `/api/web` leser bare. Serveren skal stå på det lokale
-nettet. Innloggingen med rollene *se*, *regler* og *admin* kommer med sidene som endrer noe; tabellene
-`app_user` og `audit_log` og `kv-admin user add` finnes allerede.
+- **Oversikt:** alle kjøreverkene (status, siste batch, data fram til, klokke med avvik,
+  recorder-versjon, regelsett og versjon, tagger, punkter, hull og alarmer siste døgn). Et klikk på et
+  kjøreverk viser øktene og hullene. Oppdateres hvert 10. sekund.
+- **Kjøreverk:** legge til, endre navn, notater, regelsett og grensen for stille-varselet, slå av og på,
+  lage og trekke tilbake nøkler, og slette et kjøreverk som aldri har lagret data. Nøkkelen vises én gang,
+  med den ferdige `/etc/hmi-recorder.json` og kommandoene til Pi-en ([§4](#4-legge-til-et-kjøreverk)).
+
+Menyen har plass til resten (Finn data, Trend, Eksport, Regler, Hendelser), som er beskrevet i planen §4.
+
+### Innlogging og roller
+
+Alle på nettet kan **se** web-siden. For å **endre** noe må du logge inn (øverst til høyre). Hver bruker
+har én rolle, og hver rolle kan alt rollene over kan:
+
+| Rolle | Kan |
+|---|---|
+| `view` | se (og eksportere, når den siden kommer) |
+| `rules` | i tillegg velge regelsett for kjøreverkene, og etter hvert endre regler og pauser |
+| `admin` | alt: kjøreverk, nøkler og brukere |
+
+Brukerne lages på databasemaskinen:
+
+| Kommando | Gjør |
+|---|---|
+| `sudo kv-admin user add storm --role admin` | ny bruker; spør etter passordet (minst 8 tegn). Finnes brukeren, får den nytt passord og ny rolle |
+| `sudo kv-admin user list` | brukerne, rollen og siste innlogging |
+| `sudo kv-admin user remove ola` | sletter brukeren, og logger den ut |
+
+- **Innloggingen varer** i `web.sessionDays` (14) dager etter siste bruk, også etter en omstart av
+  serveren. Passordet lagres med scrypt, og cookien har bare et tilfeldig token, som serveren også bare
+  har et fingeravtrykk av.
+- **Fem feil passord** fra samme maskin på 10 minutter gir en pause, og hvert feil forsøk står i
+  serverens logg.
+- **Alt som endrer noe**, må komme som JSON fra serverens egen side (sjekket med `Origin`), så en annen
+  nettside ikke kan gjøre det for deg. Hver endring står i `audit_log` som `web:<bruker>`
+  (`sudo kv-admin audit`).
+- **Krev innlogging også for å se:** sett `"web": { "loginToView": true }` i oppsettfilen, og start
+  serveren på nytt.
+- **Bare det lokale nettet:** siden går over HTTP, så passordet sendes ukryptert på nettet. Ikke gjør
+  serveren tilgjengelig utenfra. HTTPS kan legges foran senere (for eksempel med Caddy eller nginx).
 
 ## 7. Databasen
 
@@ -372,7 +564,8 @@ KV_TEST_DB=postgres://bruker:passord@localhost/kjoreverk_test npm test
 Testene (`test/*.test.js`, Nodes egen `node:test`) kjører mot en ekte PostgreSQL, med og uten
 TimescaleDB: mottaket (idempotens, duplikater, 400/401/403/413/503, gzip, klokkemerket), reglene
 (ETag og 304, versjoner, tillegg, feil, pauser), historikken (første punkt, tynning, hull, økter,
-sammendragene, punkter i etterkant) og kommandolinjen.
+sammendragene, punkter i etterkant), innloggingen og rollene på web-siden, Kjøreverk-API-et, og
+kommandolinjen.
 
 **Simulatoren** later som det er 42 kjøreverk mot en kjørende server, med brudd, nye forsøk, omstarter
 med etterfylling og batcher sendt to ganger, og skriver tallene til slutt:
@@ -405,6 +598,8 @@ lib/
   config.js               oppsettfilen og standardverdiene
   db.js                   PostgreSQL og migreringene
   auth.js                 nøklene (SHA-256) og preHandler-en for /api/v1
+  session.js              innloggingen på web-siden: økter, cookie, roller
+  run-as.js               kv-admin med sudo: bytter til brukeren kjoreverk før den kobler til
   ingest.js               mottaket: sjekken av batchen og transaksjonen
   history.js              /history: kildevalg, første punkt, tynning, hull
   rules.js                regelsett, tillegg, versjoner, pauser
@@ -414,7 +609,7 @@ lib/
   log.js, errors.js, audit.js
 routes/v1.js              /api/v1: hello, rules, ingest, history
 routes/web.js             /api/web: det web-siden spør om
-web/                      web-siden: index.html, shell.js, style.css, pages/overview.js
+web/                      web-siden: index.html, shell.js (meny, innlogging), style.css, pages/overview.js, pages/vehicles.js
 db/migrations/            skjemaet, nummerert
 deploy/                   install.sh, systemd-enhetene, backup.sh, postgresql- og chrony-oppsett
 docs/                     PLAN.md, PROTOKOLL.md, examples/rules-example.json

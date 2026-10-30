@@ -60,7 +60,7 @@ const historySchema = {
 
 module.exports = async function v1(app, { db, config, log }) {
   app.decorateRequest('vehicle', null);
-  app.addHook('preHandler', requireKey(db));
+  app.addHook('preHandler', requireKey(db, log));
   let inflight = 0;   // batcher som lagres akkurat nå (mottrykk, docs/PLAN.md §3.4)
 
   app.post('/hello', { schema: helloSchema }, async (req, reply) => {
@@ -73,8 +73,8 @@ module.exports = async function v1(app, { db, config, log }) {
     const s = await db.query(`INSERT INTO session (vehicle_id, boot, recorder_version, clock_synced) VALUES ($1, $2, $3, $4)
       ON CONFLICT (vehicle_id, boot) DO UPDATE SET recorder_version = EXCLUDED.recorder_version, clock_synced = EXCLUDED.clock_synced RETURNING id`,
     [v.id, b.boot, b.recorder || null, synced]);
-    const r = await db.query(`UPDATE vehicle SET last_seen = now(), recorder_version = $2, clock_synced = $3, clock_offset_ms = $4 WHERE id = $1
-      RETURNING (extract(epoch FROM last_ts) * 1000)::bigint AS last_ts`, [v.id, b.recorder || null, synced, piTime === null ? null : piTime - now]);
+    const r = await db.query(`UPDATE vehicle SET last_seen = now(), recorder_version = $2, clock_synced = $3, clock_offset_ms = $4, last_ip = $5 WHERE id = $1
+      RETURNING (extract(epoch FROM last_ts) * 1000)::bigint AS last_ts`, [v.id, b.recorder || null, synced, piTime === null ? null : piTime - now, req.ip]);
     if (piTime !== null) {
       await db.query('INSERT INTO clock_obs (vehicle_id, session_id, pi_time, offset_ms, synced) VALUES ($1, $2, to_timestamp($3 / 1000.0), $4, $5)',
         [v.id, s.rows[0].id, piTime, Math.max(-2e9, Math.min(2e9, piTime - now)), synced]);
@@ -103,7 +103,7 @@ module.exports = async function v1(app, { db, config, log }) {
     inflight++;
     const t0 = Date.now();
     try {
-      const r = await ingest(db, req.vehicle, req.body, { limits: config.ingest });
+      const r = await ingest(db, req.vehicle, req.body, { limits: config.ingest, ip: req.ip });
       if (r.replay) log.info(`${req.vehicle.code}: batch ${req.body.seq} again; same answer, nothing stored twice`);
       else log.debug(`${req.vehicle.code}: batch ${req.body.seq}: ${r.stored} stored, ${r.duplicates} duplicates${r.events ? `, ${r.events} events` : ''}${r.gaps ? `, ${r.gaps} gaps` : ''} in ${Date.now() - t0} ms`);
       return r.json;
