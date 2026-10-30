@@ -159,7 +159,7 @@
   // ---------------------------------------------------------------- rutingen
   function route() {
     if (!started) return;
-    const name = (location.hash.replace(/^#\/?/, '') || 'overview').split('/')[0];
+    const name = (location.hash.replace(/^#\/?/, '') || 'overview').split(/[/?]/)[0];
     if (current && current.name === name) return;
     if (current && current.unmount) current.unmount();
     main.innerHTML = '';
@@ -191,6 +191,15 @@
     page(name, p) { pages[name] = p; if (started && current === null) route(); },
     api, el, esc, fmtTime, ago, fmtNum, fmtBytes, fmtDuration, modal, confirm: confirmBox, copy, login,
     get user() { return me.user; },
+    // #/side?a=1&b=2: parameterne til siden som vises, og å gå til en side med parametere
+    params() { const h = location.hash; const i = h.indexOf('?'); return new URLSearchParams(i >= 0 ? h.slice(i + 1) : ''); },
+    go(page, params) { location.hash = `#/${page}${params && String(new URLSearchParams(params)) ? '?' + new URLSearchParams(params) : ''}`; },
+    // oppdater adressen uten å laste siden på nytt, så den kan bokmerkes og deles
+    setParams(params) {
+      const name = (location.hash.replace(/^#\/?/, '') || 'overview').split(/[/?]/)[0];
+      const q = String(new URLSearchParams(params));
+      history.replaceState(null, '', `#/${name}${q ? '?' + q : ''}`);
+    },
     can(role) { return !!me.user && (RANK[me.user.role] || 0) >= RANK[role]; },
     serverStatus(ok, text) {
       document.getElementById('serverDot').className = 'dot ' + (ok ? 'ok' : 'bad');

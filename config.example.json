@@ -41,7 +41,9 @@
   "web": {
     "enabled": true,
     "loginToView": false,
-    "sessionDays": 14
+    "sessionDays": 14,
+    "maxExports": 2
   },
+  "storagePath": "/var/lib/postgresql",
   "log": "info"
 }

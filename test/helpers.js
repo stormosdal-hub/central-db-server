@@ -66,4 +66,27 @@ function batch(code, seq, tags, n, end, extra) {
   return Object.assign({ vehicle: code, boot: BOOT, seq, clock: { synced: true, piTime: Date.now() }, series }, extra || {});
 }
 
-module.exports = { setup, freshDb, addVehicle, hello, batch, BOOT };
+// en nettleser: husker cookien, sender JSON og Origin som web-siden gjør
+function browser(T) {
+  let cookie = null;
+  const req = async (method, url, body, extra) => {
+    const headers = Object.assign({ host: 'dbserver:8090', origin: 'http://dbserver:8090' }, extra || {});
+    if (cookie) headers.cookie = cookie;
+    if (body !== undefined) headers['content-type'] = 'application/json';
+    const r = await T.app.inject({ method, url: `/api/web${url}`, headers, payload: body === undefined ? undefined : JSON.stringify(body) });
+    const set = r.headers['set-cookie'];
+    if (set) cookie = String(Array.isArray(set) ? set[0] : set).split(';')[0];
+    return r;
+  };
+  return {
+    get: url => req('GET', url),
+    post: (url, body, extra) => req('POST', url, body === undefined ? {} : body, extra),
+    patch: (url, body) => req('PATCH', url, body),
+    put: (url, body) => req('PUT', url, body),
+    del: url => req('DELETE', url),
+    login: (name, password) => req('POST', '/login', { name, password }),
+    get cookie() { return cookie; },
+  };
+}
+
+module.exports = { setup, freshDb, addVehicle, hello, batch, browser, BOOT };

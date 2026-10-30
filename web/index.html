@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kjøreverk · sentral server</title>
+<link rel="stylesheet" href="vendor/uPlot.min.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -22,8 +23,16 @@
   <div class="who" id="who"></div>
 </header>
 <main id="main"></main>
+<!-- uPlot (grafene) fra en lokal kopi: serveren trenger ikke internett -->
+<script src="vendor/uPlot.iife.min.js"></script>
 <script src="shell.js"></script>
+<script src="components.js"></script>
 <script src="pages/overview.js"></script>
+<script src="pages/find.js"></script>
+<script src="pages/trend.js"></script>
+<script src="pages/export.js"></script>
+<script src="pages/rules.js"></script>
+<script src="pages/events.js"></script>
 <script src="pages/vehicles.js"></script>
 </body>
 </html>

@@ -24,8 +24,19 @@
       ['Kjøreverk', vs.length, ''], ['Sender nå', sending, sending === vs.filter(v => v.active && v.key_prefix).length && sending ? 'ok' : ''],
       ['Stille for lenge', silent, silent ? 'bad' : 'ok'], ['Klokke ikke synkronisert', unsynced, unsynced ? 'warn' : ''],
       ['Punkter siste døgn', fmtNum(points), ''], ['Hull siste døgn', gaps, gaps ? 'warn' : ''], ['Alarmer siste døgn', alarms, alarms ? 'warn' : ''],
-      ['Database', fmtBytes(d.dbBytes), ''],
     ].map(([k, v, c]) => `<div class="card"><div class="k">${k}</div><div class="v ${c}">${v}</div></div>`).join('');
+
+    // lagringen: databasen, disken og hvor lenge den rekker; og serverens egen klokke
+    const st = d.storage || {}, dk = st.disk;
+    const days = st.daysLeft;
+    const left = days === null || days === undefined ? 'ikke nok historikk ennå' : days > 3650 ? 'over 10 år' : days > 730 ? `ca. ${Math.round(days / 365)} år` : `ca. ${days} døgn`;
+    const ck = d.clock || {};
+    root.querySelector('.cards2').innerHTML = [
+      ['Database', fmtBytes(st.dbBytes), '', st.growthPerDay ? `vokser ca. ${fmtBytes(st.growthPerDay)} i døgnet` : `${fmtNum(st.pointsPerDay || 0)} punkter i døgnet`],
+      ['Ledig på disken', dk ? fmtBytes(dk.free) : '–', dk && dk.free < dk.total * 0.1 ? 'bad' : dk && dk.free < dk.total * 0.25 ? 'warn' : '', dk ? `av ${fmtBytes(dk.total)} · rekker ${left}` : ''],
+      ['Serverens klokke', ck.synced === null || ck.synced === undefined ? '–' : ck.synced ? 'synkronisert' : 'ikke synkronisert', ck.synced === false ? 'bad' : ck.synced ? 'ok' : '',
+        ck.source ? `mot ${esc(ck.source)}` : ck.synced === null || ck.synced === undefined ? 'kunne ikke spørre systemet' : ''],
+    ].map(([k, v, c, sub]) => `<div class="card wide"><div class="k">${k}</div><div class="v ${c}">${v}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`).join('');
 
     const tbody = root.querySelector('tbody');
     if (!vs.length) { tbody.innerHTML = '<tr><td colspan="11" class="empty">Ingen kjøreverk ennå. Legg dem til på siden <a href="#/vehicles">Kjøreverk</a>, eller med <code>sudo kv-admin vehicle add kv01</code> på databasemaskinen.</td></tr>'; return; }
@@ -89,7 +100,7 @@
     title: 'Oversikt',
     mount(main) {
       root = el('div');
-      root.innerHTML = `<h1>Oversikt</h1><div class="cards"></div>
+      root.innerHTML = `<h1>Oversikt</h1><div class="cards"></div><div class="cards cards2"></div>
         <table><thead><tr><th>Kjøreverk</th><th>Navn</th><th>Status</th><th>Siste batch</th><th>Data fram til</th><th>Klokke</th><th>Recorder</th><th>Regler</th>
         <th class="num">Tagger</th><th class="num">Punkter 24 t</th><th class="num">Hull 24 t</th><th class="num">Alarmer 24 t</th></tr></thead><tbody><tr><td colspan="12" class="muted">henter …</td></tr></tbody></table>
         <div class="detail" style="display:none"></div>`;

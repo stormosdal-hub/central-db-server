@@ -12,7 +12,7 @@ med 500 GB NVMe, og kan flyttes til en annen maskin uten at noe endres i kjørev
  │   HMI i nettleseren          │  GET  /rules  ──► │   /api/web + web/  oversikten        │
  │                              │ ◄── POST /history │ PostgreSQL (+ TimescaleDB)           │
  └──────────────────────────────┘                   │   sample, event, gap, session, rule_set │
-                                   NTP (chrony) ◄── │ kv-admin  kjøreverk, nøkler, regler  │
+                  NTP 10.0.0.104 (alle enhetene) ── │ kv-admin  kjøreverk, nøkler, regler  │
                                                     └──────────────────────────────────────┘
 ```
 
@@ -48,11 +48,11 @@ Rekkefølgen fra planen (§5), og hvor langt det er kommet:
 | 1 | Installasjon: PostgreSQL + TimescaleDB, skjemaet som migreringer | **bygd.** `deploy/install.sh`, `db/migrations/001_init.sql`. Installasjonsskriptet er skrevet for Debian på Pi 5, men er ennå ikke kjørt på en ekte Pi |
 | 2 | Mottaket `/hello` og `/ingest`, testskript for 42 kjøreverk, måling | **bygd.** Idempotent på `boot` + `seq`, én transaksjon per batch, mottrykk med 503. `test/simulate.js`. Målt her på en x86-maskin: 3 300 punkter/s lagret med 25 ms per batch; Pi 5-en må måles |
 | 3 | Kjøreverk og nøkler: først på kommandolinjen, så på web-siden | **bygd.** `sudo kv-admin vehicle …`, og siden *Kjøreverk*, med innlogging og roller |
-| 4 | `/rules` og siden for reglene | **API-et er bygd**, med regelsett, tillegg per kjøreverk og pauser fra kommandolinjen. Web-siden gjenstår |
+| 4 | `/rules` og siden for reglene | **bygd.** API-et, og siden *Regler* med editor, pauser, forhåndsvisning og historikk |
 | 5 | `/history` | **bygd.** Rådata, `sample_1m` eller `sample_1h` etter mengden, første punkt ved `from`, tynning med minste og største, `null` i kjente hull og mellom økter |
-| 6 | Web-siden: oversikten, Finn data, trend, eksport | **Skallet, innloggingen, Oversikt og Kjøreverk er bygd.** Finn data, trend og eksport gjenstår |
-| 7 | Hendelser, hull og varsler for stille kjøreverk | Hendelser og hull lagres og vises per kjøreverk i oversikten; «stille» vises med grensen `silent_after_s`. Egen side med filtre gjenstår |
-| 8 | Klokka: chrony som tidsserver | **oppsett beskrevet** (§8, `deploy/chrony-kjoreverk.conf`). GPS senere |
+| 6 | Web-siden: oversikten, Finn data, trend, eksport | **bygd.** Oversikt, Finn data, Trend, Eksport og Kjøreverk, med innlogging og roller |
+| 7 | Hendelser, hull og varsler for stille kjøreverk | **bygd.** Siden *Hendelser*, med varsler, filtre og hull (meldte og brudd mellom økter) |
+| 8 | Klokka | **ordnet:** alle enhetene bruker NTP-serveren 10.0.0.104; `install.sh` setter opp databasemaskinen (§8). Serverens klokke vises på Oversikt |
 | 9 | Sikkerhetskopi og flytting | **bygd og beskrevet** (§9), ikke prøvd på en Pi ennå |
 
 **Avvik fra planen, med vilje:**
@@ -65,6 +65,8 @@ Rekkefølgen fra planen (§5), og hvor langt det er kommet:
   komprimering og sletting av rådataene.
 - **Uten TimescaleDB blir tabellene vanlige tabeller** med en BRIN-indeks på tiden, ikke
   partisjoner per måned. Det er enklere, og holder for å komme i gang; se [§7](#7-databasen).
+- **Klokka:** alle enhetene bruker NTP-serveren som finnes på nettet (10.0.0.104), i stedet for at
+  databasemaskinen er tidskilde med GPS (planen §3.7). Se [§8](#8-klokka).
 - **Tider før 2001 eller mer enn et døgn fram i tid avvises** (400). En Pi uten batteri på RTC-en kan
   ha en tid ingen vet noe om, og lagrede tider skrives aldri om. Recorderen sender uansett ikke før
   klokka er synkronisert.
@@ -113,7 +115,7 @@ rotfilsystem (eller montert der PostgreSQL skal ligge). Alt er Debian-pakker og 
    Web-siden er på `http://<pi-ip>:8090/`.
 4. **Gi serveren et fast navn eller en fast IP-adresse** på nettet, for eksempel `dbserver`. Det er
    det kjøreverkene får som `server` i `/etc/hmi-recorder.json`, og det følger med til en ny maskin senere.
-5. **Klokka:** sett opp chrony som tidsserver for kjøreverkene, [§8](#8-klokka).
+5. **Klokka:** `install.sh` har satt den mot NTP-serveren 10.0.0.104, som resten av nettet bruker ([§8](#8-klokka)).
 6. **Lag en bruker for deg selv** (`sudo kv-admin user add <navn> --role admin`), og **legg til
    kjøreverkene** på siden *Kjøreverk*, [§4](#4-legge-til-et-kjøreverk).
 
@@ -146,6 +148,8 @@ filen, får standardverdien:
 | `web.enabled` | true | Web-siden og `/api/web` |
 | `web.loginToView` | false | `true`: innlogging også for å se web-siden, ikke bare for å endre |
 | `web.sessionDays` | 14 | Hvor lenge en innlogging varer uten bruk |
+| `web.maxExports` | 2 | Eksporter som kan lastes ned samtidig; flere får «prøv igjen om litt» |
+| `storagePath` | `/var/lib/postgresql` | Disken Oversikt viser ledig plass på (der databasen ligger) |
 | `log` | `info` | `debug` gir en linje per batch og per historikkspørsmål |
 
 Etter en endring: `sudo systemctl restart kjoreverk-server`.
@@ -265,7 +269,7 @@ du bytter ut `hmi-core` med en nyere versjon.
    Huben (`kjoreverk@hub.service`) må også kjøre: recorderen sender ingenting før den har fått
    taggene derfra.
 5. **Klokka:** recorderen sender ingenting før Pi-ens klokke er synkronisert (den spør `timedatectl`).
-   Har Pi-en internett, er den vanligvis det. Ellers: pek den på databasemaskinen ([§8](#8-klokka)). Har
+   Pi-ene bruker NTP-serveren på nettet, 10.0.0.104 ([§8](#8-klokka)). Har
    serveren svart, men klokka ikke blitt synkronisert innen 10 minutter, sender den likevel, merket.
 6. **Sjekk loggen:**
 
@@ -401,16 +405,25 @@ Pauser som har vært over i mer enn 7 dager, tas ut av listen ved neste lagring.
 - `GET /api/health` svarer `{ ok, version, time, timescale }` uten nøkkel.
 
 **Web-siden** på `/` er vanlig HTML, CSS og JavaScript uten byggesteg (`web/`). Hver side er et skript i
-`web/pages/` med sin del av `/api/web` i `routes/web.js`. Bygd nå:
+`web/pages/` med sin del av `/api/web` i `routes/web/`. Grafene tegnes med uPlot fra en lokal kopi
+(`node_modules/uplot`, servert på `/vendor/`), så serveren ikke trenger internett. Adressen viser hva
+siden står på (`#/trend?s=…&from=…&to=…`), så et søk eller en trend kan bokmerkes og deles.
 
-- **Oversikt:** alle kjøreverkene (status, siste batch, data fram til, klokke med avvik,
-  recorder-versjon, regelsett og versjon, tagger, punkter, hull og alarmer siste døgn). Et klikk på et
-  kjøreverk viser øktene og hullene. Oppdateres hvert 10. sekund.
-- **Kjøreverk:** legge til, endre navn, notater, regelsett og grensen for stille-varselet, slå av og på,
-  lage og trekke tilbake nøkler, og slette et kjøreverk som aldri har lagret data. Nøkkelen vises én gang,
-  med den ferdige `/etc/hmi-recorder.json` og kommandoene til Pi-en ([§4](#4-legge-til-et-kjøreverk)).
+| Side | Hva |
+|---|---|
+| **Oversikt** | Alle kjøreverkene: status, siste batch, data fram til, klokke med avvik, recorder-versjon, regelsett, tagger, punkter, hull og alarmer siste døgn. Databasens størrelse, hvor fort den vokser, ledig disk og hvor lenge den rekker, og serverens egen klokke. Et klikk på et kjøreverk viser øktene og hullene |
+| **Finn data** | Hvilke kjøreverk har disse dataene? Velg tagger (mønstre, navn fra PLS-en, type, enhet) og tidsrom, og eventuelt en betingelse: *var på*, *over* eller *under en verdi*, *endret seg*, eller *en hendelse med denne teksten*. Svaret er en liste per kjøreverk med antall treff, første og siste gang, og hvor lenge (for *var på*, *over*, *under*). Derfra: trend eller eksport, for ett kjøreverk eller alle |
+| **Trend** | Flere kjøreverk og tagger i samme graf (høyst 24). Tall som trinn, én akse per enhet; av/på-signaler som felt i en tidslinje under. Dra for å zoome inn, rull for å zoome rundt pekeren, ◀ ▶ flytter, *Live* følger nå. Hver endring henter punktene på nytt, med finere oppløsning når du zoomer inn |
+| **Eksport** | CSV for Excel: verdier, hendelser eller hull. Lang form (én rad per verdi) eller bred (én kolonne per tag), alle verdier eller per minutt/time, `;` og desimalkomma eller `,` og punktum, lokal tid eller UTC, én fil eller én per kjøreverk i en zip. Viser omtrent hvor mange rader det blir før nedlastingen. Strømmes fra databasen, så store uttrekk ikke fyller minnet |
+| **Regler** | Rediger regelsettene og tillegget per kjøreverk, regel for regel eller som JSON, med sjekk mens du skriver. Pauser (lagres med en gang). Forhåndsvisning: hva reglene ville lagret for et kjøreverk de siste timene, regnet med regelmotoren fra recorderen. Historikk med hvem, når og hvorfor, og «hent inn» en eldre versjon |
+| **Hendelser** | Varsler øverst (stille kjøreverk, klokker som er av). Hendelser og alarmer fra alle kjøreverkene med filtre på kjøreverk, tid, alvorlighet, tekst og kilde. Hull: de recorderne har meldt, og brudd mellom to økter der ingenting kom inn |
+| **Kjøreverk** | Legge til, endre navn, notater, regelsett og grensen for stille-varselet, slå av og på, lage og trekke tilbake nøkler, og slette et kjøreverk som aldri har lagret data ([§4](#4-legge-til-et-kjøreverk)) |
 
-Menyen har plass til resten (Finn data, Trend, Eksport, Regler, Hendelser), som er beskrevet i planen §4.
+**Finn data, slik den regner:** uten betingelse svarer katalogen (`vehicle_tag`) på «har taggen», og
+antallet kommer fra sammendragene. *Var på*, *over* og *under* regnes på rådataene: verdien som gjaldt ved
+starttidspunktet teller med, og hver verdi gjelder til den neste, så «tid på» er riktig også for et signal
+som sjelden endres. Blir det mer enn 2 millioner rader, teller den i stedet minuttene i `sample_1m` der
+verdien var over (eller under), og sier fra om det.
 
 ### Innlogging og roller
 
@@ -488,29 +501,47 @@ i `psql` hvor mye komprimeringen sparer.
 
 ## 8. Klokka
 
-Serveren er tidskilden for kjøreverkene (planen §3.7), så alle tider er like på tvers:
+Alle enhetene på nettet bruker **den samme NTP-serveren, 10.0.0.104**: denne serveren, Pi-ene i
+kjøreverkene, og gjerne PLS-ene. Da har alle samme tid, og tidene fra kjøreverkene kan sammenlignes
+med hverandre og med serveren. Serveren trenger ikke være tidskilde selv.
+
+**På databasemaskinen** setter `deploy/install.sh` dette opp: med `systemd-timesyncd`, som følger med
+Raspberry Pi OS, eller med chrony hvis det er installert. En annen adresse: `NTP_SERVER=<adresse> sudo bash
+deploy/install.sh`. For hånd:
 
 ```bash
-sudo apt install chrony
-sudo cp deploy/chrony-kjoreverk.conf /etc/chrony/conf.d/kjoreverk.conf
-sudo nano /etc/chrony/conf.d/kjoreverk.conf     # server-linjen: en NTP-server som finnes fra før, og allow: nettet kjøreverkene står på
-sudo systemctl restart chrony
-chronyc tracking                                 # vår egen kilde
-chronyc clients                                  # kjøreverkene som spør
+sudo mkdir -p /etc/systemd/timesyncd.conf.d
 ```
 
-- **`local stratum 10`** gjør at serveren svarer kjøreverkene med sin egen klokke også når kilden
-  faller ut, så alle holder samme tid.
-- **Pi 5 har en RTC:** sett i batteriet, så tiden overlever et strømbrudd. `rtcsync` i oppsettet skriver
-  klokka dit.
-- **GPS senere:** en USB-mottaker (u-blox) med `gpsd`, og i chrony-oppsettet
-  `refclock SHM 0 refid GPS precision 1e-1 offset 0.5` (og `refclock SHM 1 refid PPS` med PPS).
-- **Kjøreverkene** peker på serveren: `NTP=dbserver` i `/etc/systemd/timesyncd.conf`, eller
-  `server dbserver iburst` i chrony, se `README_systemd-service.md` i HMI-prosjektet. PLS-ene peker på
-  sin Pi.
-- **Serveren følger med:** `clock_obs` har Pi-ens tid mot serverens ved hver forespørsel, og
-  oversikten viser avviket. Lagrede tider skrives aldri om, men en klokke som gikk feil, kan rettes
-  senere ut fra dette.
+```bash
+printf '[Time]\nNTP=10.0.0.104\n' | sudo tee /etc/systemd/timesyncd.conf.d/kjoreverk.conf
+```
+
+```bash
+sudo systemctl restart systemd-timesyncd
+```
+
+Sjekk: `timedatectl` skal si `System clock synchronized: yes`, og `timedatectl timesync-status` viser
+`Server: 10.0.0.104`. Oversikt på web-siden viser det samme under *Serverens klokke*.
+
+**På Pi-ene i kjøreverkene** er det det samme: `NTP=10.0.0.104` under `[Time]` i
+`/etc/systemd/timesyncd.conf` (eller i en fil i `/etc/systemd/timesyncd.conf.d/` som over). Recorderen
+sender ingenting før klokka er synkronisert. `README_systemd-service.md` i HMI-prosjektet sier
+`NTP=dbserver`, fra da planen var at databasemaskinen skulle være tidskilden. Bruk 10.0.0.104.
+
+**PLS-ene** kan bruke 10.0.0.104 direkte, med den innebygde NTP-klienten (i TIA Portal: egenskapene til
+CPU-en, *Time of day*, *Enable time synchronization via NTP server*). Tidene som lagres, kommer fra Pi-en,
+så PLS-klokka betyr mest for ringen med historikk (TCP_LINK.md §3.8), der adapteren plasserer postene
+etter forskjellen mellom PLS-klokka og Pi-klokka.
+
+- **Pi 5 har en RTC:** sett i batteriet, så tiden overlever et strømbrudd fram til NTP-serveren svarer.
+- **Er 10.0.0.104 borte**, går klokkene videre på egen hånd og driver lite. Når den er tilbake, stiller de
+  seg. En Pi i et kjøreverk som starter uten batteri på RTC-en og uten NTP-serveren, holder dataene i RAM til
+  klokka er synkronisert; svarer serveren, men klokka blir ikke synkronisert innen 10 minutter, sendes de
+  likevel, merket at klokka ikke var synkronisert.
+- **Serveren følger med:** `clock_obs` har Pi-ens tid mot serverens ved hver forespørsel. Oversikt og
+  Hendelser viser kjøreverk med klokke som ikke er synkronisert, eller som er mer enn 2 sekunder av. Lagrede
+  tider skrives aldri om, men en klokke som gikk feil, kan rettes senere ut fra dette.
 
 ## 9. Drift
 
@@ -604,14 +635,21 @@ lib/
   history.js              /history: kildevalg, første punkt, tynning, hull
   rules.js                regelsett, tillegg, versjoner, pauser
   admin.js                kjøreverk, nøkler, brukere
-  jobs.js                 sammendragene, slettingen, oppryddingen
+  jobs.js                 sammendragene, slettingen, oppryddingen, størrelsen per døgn
+  catalog.js              katalogen: tagmønstre, tidsrom, taggene til velgerne
+  find.js                 Finn data: har taggen, var på, over, under, endret seg, hendelse
+  export.js, csv.js, zip.js   eksporten: cursor i PostgreSQL, CSV, zip som strømmes
+  preview.js              forhåndsvisning av regler med regelmotoren
+  storage.js, clock.js    plassen på disken og veksten; serverens klokke
   record-rules.js         kopi av hmi-core sin regelmotor (sjekken av regelsett)
   log.js, errors.js, audit.js
 routes/v1.js              /api/v1: hello, rules, ingest, history
-routes/web.js             /api/web: det web-siden spør om
-web/                      web-siden: index.html, shell.js (meny, innlogging), style.css, pages/overview.js, pages/vehicles.js
+routes/web.js             /api/web: innloggingen, og én modul per side i routes/web/
+routes/web/               overview, vehicles, find, series (trend), export, events, rules
+web/                      web-siden: index.html, shell.js (meny, innlogging), components.js (velgerne), style.css,
+                          pages/: overview, find, trend, export, rules, events, vehicles
 db/migrations/            skjemaet, nummerert
-deploy/                   install.sh, systemd-enhetene, backup.sh, postgresql- og chrony-oppsett
+deploy/                   install.sh, systemd-enhetene, backup.sh, postgresql-oppsettet
 docs/                     PLAN.md, PROTOKOLL.md, examples/rules-example.json
 test/                     testene, helpers.js og simulate.js
 config.example.json       alle innstillingene

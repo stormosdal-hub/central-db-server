@@ -11,6 +11,8 @@
 #      /etc/kjoreverk-server/config.json hvis den mangler.
 #   4. systemd-tjenesten kjoreverk-server, og sikkerhetskopien (deploy/backup.sh) hver natt.
 #   5. Kjører migreringene.
+#   6. Klokka: synkroniserer mot NTP-serveren på nettet, den samme som kjøreverkene bruker
+#      (NTP_SERVER=10.0.0.104 som standard; NTP_SERVER=none lar klokka være som den er).
 # Node.js (LTS) må være installert fra før: https://github.com/nodesource/distributions, eller README.
 set -euo pipefail
 
@@ -21,6 +23,7 @@ DB=kjoreverk
 DB_USER=kjoreverk
 SVC_USER=kjoreverk
 NO_TIMESCALE=${NO_TIMESCALE:-0}
+NTP_SERVER=${NTP_SERVER:-10.0.0.104}
 
 say() { printf '\n==> %s\n' "$*"; }
 die() { printf 'install.sh: %s\n' "$*" >&2; exit 1; }
@@ -101,6 +104,24 @@ install -m 755 "$HERE/deploy/backup.sh" /usr/local/sbin/kjoreverk-backup
 mkdir -p /var/backups/kjoreverk && chown postgres:postgres /var/backups/kjoreverk
 systemctl daemon-reload
 
+# ---------------------------------------------------------------- klokka
+# Alle enhetene på nettet bruker samme NTP-server, så tidene på serveren og i kjøreverkene kan sammenlignes.
+if [ "$NTP_SERVER" != none ]; then
+  say "the clock: NTP from $NTP_SERVER"
+  if systemctl is-active --quiet chrony 2>/dev/null; then
+    mkdir -p /etc/chrony/conf.d
+    echo "server $NTP_SERVER iburst prefer" > /etc/chrony/conf.d/kjoreverk.conf
+    systemctl restart chrony
+  else
+    mkdir -p /etc/systemd/timesyncd.conf.d
+    printf '[Time]\nNTP=%s\n' "$NTP_SERVER" > /etc/systemd/timesyncd.conf.d/kjoreverk.conf
+    timedatectl set-ntp true 2>/dev/null || true
+    systemctl restart systemd-timesyncd 2>/dev/null || true
+  fi
+  sleep 3
+  timedatectl show -p NTPSynchronized --value 2>/dev/null | grep -q yes && echo "the clock is synchronized" || echo "the clock isn't synchronized yet; check with: timedatectl timesync-status"
+fi
+
 # ---------------------------------------------------------------- 5. migreringene og start
 say "migrations"
 su "$SVC_USER" -s /bin/bash -c "cd $APP && node bin/kv-admin.js migrate --config $CONF_DIR/config.json"
@@ -118,5 +139,5 @@ Done. Next:
   sudo kv-admin status
   http://$(hostname -I | awk '{print $1}'):$(grep -o '"port": *[0-9]*' $CONF_DIR/config.json | grep -o '[0-9]*' || echo 8090)/
 Logs: journalctl -u kjoreverk-server -f
-The clock: see README §Klokka (chrony as the NTP server for the vehicles).
+The clock: NTP from $NTP_SERVER, the same as the vehicles (README §8).
 EOF
