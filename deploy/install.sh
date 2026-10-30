@@ -104,7 +104,8 @@ systemctl daemon-reload
 # ---------------------------------------------------------------- 5. migreringene og start
 say "migrations"
 su "$SVC_USER" -s /bin/bash -c "cd $APP && node bin/kv-admin.js migrate --config $CONF_DIR/config.json"
-systemctl enable --now kjoreverk-server.service
+systemctl enable kjoreverk-server.service
+systemctl restart kjoreverk-server.service     # også ved en oppdatering: den nye koden tas i bruk
 systemctl enable --now kjoreverk-backup.timer
 sleep 2
 systemctl --no-pager --lines=5 status kjoreverk-server.service || true
