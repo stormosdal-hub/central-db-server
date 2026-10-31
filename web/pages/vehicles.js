@@ -88,7 +88,7 @@
     const m = S.modal(`<h2>Nytt kjøreverk</h2>
       <form class="form">
         <div class="row2">
-          <label>Kode (det kjøreverket heter på serveren)<input name="code" required maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9_.\\-]*" placeholder="${next}" value="${next}"></label>
+          <label>Kode (det kjøreverket heter på serveren)<input name="code" required maxlength="32" pattern="[A-Za-z_][A-Za-z0-9_.\\-]*" title="En bokstav eller _ først, så bokstaver, sifre, _ . og -, som kv_52: det samme som kjøreverkets navn på Pi-en" placeholder="${next}" value="${next}"></label>
           <label>Navn<input name="name" maxlength="100" placeholder="Kjøreverk ${esc(String(Number((next.match(/(\d+)$/) || [])[1]) || ''))}"></label>
         </div>
         <div class="hint">Koden må være nøyaktig lik kjøreverkets navn på Pi-en: <code>/etc/kjoreverk/vehicle</code> (eller <code>"vehicle"</code> i <code>/etc/kjoreverk/recorder.json</code>). Ellers avviser serveren nøkkelen.</div>
@@ -181,7 +181,7 @@
           <h3>Innstillinger</h3>
           <form class="form settings">
             <div class="row2">
-              <label>Kode <span class="hint">lik navnet på Pi-en</span><input name="code" maxlength="32" value="${esc(v.code)}"${ro}></label>
+              <label>Kode <span class="hint">lik navnet på Pi-en</span><input name="code" maxlength="32" pattern="[A-Za-z_][A-Za-z0-9_.\\-]*" title="En bokstav eller _ først, så bokstaver, sifre, _ . og -, som kv_52: det samme som kjøreverkets navn på Pi-en" value="${esc(v.code)}"${ro}></label>
               <label>Navn<input name="name" maxlength="100" value="${esc(v.name)}"${ro}></label>
             </div>
             <div class="row2">

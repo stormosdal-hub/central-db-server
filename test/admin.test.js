@@ -26,6 +26,14 @@ test('kjøreverk, brukere og kommandolinjen', async t => {
   await t.test('kjøreverk', async () => {
     await assert.rejects(admin.addVehicle(T.db, { code: 'kv07', who: 'test' }), /exists already/);
     await assert.rejects(admin.addVehicle(T.db, { code: 'kv 7', who: 'test' }), /letters, digits/);
+    // som navnet på Pi-en (hmi-core/lib/vehicle.js): en bokstav eller _ først
+    for (const code of ['52', '7kv', '-kv', '.kv', 'k'.repeat(33)]) {
+      await assert.rejects(admin.addVehicle(T.db, { code, who: 'test' }), /a letter or _ first/, code);
+    }
+    await assert.rejects(admin.renameVehicle(T.db, 'kv07', '52', 'test'), /a letter or _ first/);
+    assert.equal((await admin.getVehicle(T.db, 'kv07')).code, 'kv07');
+    await admin.addVehicle(T.db, { code: '_52', who: 'test' });
+    await admin.deleteVehicle(T.db, '_52', 'test');
     await admin.addVehicle(T.db, { code: 'kv08', name: 'Kjøreverk 8', silentAfter: 600, who: 'test' });
     const v = await admin.getVehicle(T.db, 'kv08');
     assert.equal(v.name, 'Kjøreverk 8');
@@ -35,6 +43,25 @@ test('kjøreverk, brukere og kommandolinjen', async t => {
     await admin.updateVehicle(T.db, 'kv08', { name: 'Åtte', notes: 'test' }, 'test');
     assert.equal((await admin.getVehicle(T.db, 'kv08')).name, 'Åtte');
     assert.equal((await admin.listVehicles(T.db)).length, 2);
+  });
+
+  await t.test('koden i databasen, og migreringen 005', async () => {
+    await assert.rejects(T.db.query("UPDATE vehicle SET code = '52' WHERE code = 'kv08'"), /vehicle_code_check/);
+    // en kode fra før som Pi-en ikke godtar: migreringen advarer og lar den gamle sjekken stå, i stedet for å feile
+    // (da ville verken serveren eller kv-admin startet)
+    const sql = require('fs').readFileSync(path.join(__dirname, '..', 'db', 'migrations', '005_vehicle_code.sql'), 'utf8');
+    const rollback = new Error('rollback');
+    await assert.rejects(T.db.tx(async c => {
+      await c.query('ALTER TABLE vehicle DROP CONSTRAINT vehicle_code_check');
+      await c.query("ALTER TABLE vehicle ADD CONSTRAINT vehicle_code_check CHECK (code ~ '^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$')");
+      await c.query("UPDATE vehicle SET code = '08' WHERE code = 'kv08'");
+      await c.query(sql);
+      const def = (await c.query("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'vehicle_code_check'")).rows[0].d;
+      assert.match(def, /\[A-Za-z0-9\]\[/);
+      await c.query("UPDATE vehicle SET last_seen = now() WHERE code = '08'");
+      throw rollback;
+    }), e => e === rollback);
+    assert.equal((await admin.getVehicle(T.db, 'kv08')).code, 'kv08');
   });
 
   await t.test('brukere', async () => {

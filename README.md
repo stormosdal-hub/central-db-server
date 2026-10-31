@@ -185,7 +185,9 @@ sudo kv-admin user add storm --role admin
 og trykk **+ Nytt kjøreverk**:
 
 - **Kode** er det kjøreverket heter på serveren, for eksempel `kv_52`. Den må være **nøyaktig lik
-  kjøreverkets navn på Pi-en** (`/etc/kjoreverk/vehicle`, se 4.2), ellers avviser serveren nøkkelen.
+  kjøreverkets navn på Pi-en** (`/etc/kjoreverk/vehicle`, se 4.2), ellers avviser serveren nøkkelen. Derfor
+  følger den samme regel som navnet på Pi-en: en bokstav eller `_` først, så bokstaver, sifre, `_`, `.` og
+  `-`, høyst 32 tegn. `52` går ikke, men `kv_52` og `_52` gjør det.
   Koden kan endres senere (feltet *Kode* på kjøreverket, eller `sudo kv-admin vehicle rename`); dataene,
   nøkkelen og reglene følger med, men Pi-en må da få det samme navnet.
 - **Navn** og **notater** er bare for deg. **Regelsett** bestemmer hva recorderen lagrer ([§5](#5-reglene));
