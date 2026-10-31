@@ -13,7 +13,7 @@
  *   kv-admin vehicle list
  *   kv-admin vehicle add <code> [--name "…"] [--rules <set>] [--silent-after <s>] [--notes "…"]
  *   kv-admin vehicle show <code>
- *   kv-admin vehicle key <code>                   en ny nøkkel; vises én gang. Legg den i /etc/hmi-recorder.json på Pi-en
+ *   kv-admin vehicle key <code>                   en ny nøkkel; vises én gang. Gi den til install.sh på Pi-en (--token)
  *   kv-admin vehicle revoke <code>                nøkkelen slutter å virke
  *   kv-admin vehicle delete <code>                bare et kjøreverk som aldri har lagret data (ellers: disable)
  *   kv-admin vehicle rename <code> <ny kode>      ny kode, f.eks. kv52 -> kv_52; dataene og nøkkelen følger med
@@ -164,7 +164,8 @@ async function vehicle(db, sub, [code, extra]) {
     case 'key': {
       const { key } = await admin.makeKey(db, code, WHO);
       console.log(`The new key for ${code} (shown only now; the old one no longer works):\n\n  ${key}\n`);
-      console.log(`On the Pi, in /etc/hmi-recorder.json:  { "vehicle": "${code}", "server": "http://<this server>:8090", "token": "${key}" }`);
+      console.log(`On the Pi:  sudo bash /opt/kjoreverk/install.sh --vehicle ${code} --server http://<this server>:8090 --token ${key}`);
+      console.log('(or set "token" in /etc/kjoreverk/recorder.json there, and: sudo systemctl restart \'kjoreverk@*\')');
       return;
     }
     case 'revoke': await admin.revokeKey(db, code, WHO); console.log(`${code}: the key is revoked`); return;
@@ -172,7 +173,7 @@ async function vehicle(db, sub, [code, extra]) {
     case 'rename': {
       if (!code || !extra) throw new Error('kv-admin vehicle rename <code> <new code>');
       await admin.renameVehicle(db, code, extra, WHO);
-      console.log(`${code} is now ${extra}. Its recorder must send "${extra}": /etc/kjoreverk/vehicle (or "vehicle" in /etc/hmi-recorder.json) on the Pi`);
+      console.log(`${code} is now ${extra}. Its recorder must send "${extra}": /etc/kjoreverk/vehicle (or "vehicle" in /etc/kjoreverk/recorder.json) on the Pi`);
       return;
     }
     case 'enable': await admin.setActive(db, code, true, WHO); console.log(`${code} is enabled`); return;

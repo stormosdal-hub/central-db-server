@@ -282,11 +282,11 @@ for n in z.namelist():
   });
 
   await t.test('Regler: forhåndsvisning med regelmotoren', async () => {
-    const strict = { rules: [{ tags: '${kv}.speed', deadband: '10%' }, { tags: '${kv}.bit*' }] };
+    const strict = { rules: [{ tags: '${pls}.speed', deadband: '10%' }, { tags: '${pls}.bit*' }] };
     const r = await web.post('/rules/preview', { recording: strict, vehicle: 'kv07', hours: 3 });
     assert.equal(r.statusCode, 200, r.body);
     const j = r.json();
-    assert.deepEqual(j.vars, { kv: 'kv_1' });
+    assert.deepEqual(j.vars, { pls: 'kv_1' });
     const sp = j.tags.find(x => x.tag === 'kv_1.speed');
     assert.equal(sp.now, 7200);
     assert.ok(sp.would > 10 && sp.would < 1000, `${sp.would}`);

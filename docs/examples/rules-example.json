@@ -1,13 +1,13 @@
 {
-  "_notes": "Et eksempel på et regelsett (PROTOKOLL.md §7). Første regel som treffer, gjelder. ${kv} byttes ut på Pi-en med prosjektets variabler. Lagre med: kv-admin rules set default docs/examples/rules-example.json",
+  "_notes": "Et eksempel på et regelsett (PROTOKOLL.md §7). Første regel som treffer, gjelder. ${pls} byttes ut på Pi-en med prosjektets variabler. Lagre med: kv-admin rules set default docs/examples/rules-example.json",
   "events": true,
   "eventsMin": "info",
   "rules": [
-    { "tags": "${kv}.spare*, ${kv}.cmd_*", "mode": "ignore", "note": "Ubrukte plasser og ekkoet av kommandoene" },
-    { "tags": "${kv}.reals_0, ${kv}.reals_1, ${kv}.reals_2", "deadband": "1%", "minInterval": 1, "maxInterval": 60, "note": "Hastighet, moment og strøm: ved endring på 1 %, høyst én i sekundet, og minst hvert minutt" },
-    { "tags": "${kv}.words_2", "ignoreBits": "8, 10", "note": "Statusordet, uten bitene som flimrer" },
-    { "tags": "${kv}.ints_*, ${kv}.dints_*", "mode": "interval", "every": 60 },
-    { "tags": "${kv}.bit*", "flickerChanges": 6, "flickerSeconds": 2, "note": "Bitene: hver endring, med vern mot flimring" },
+    { "tags": "${pls}.spare*, ${pls}.cmd_*", "mode": "ignore", "note": "Ubrukte plasser og ekkoet av kommandoene" },
+    { "tags": "${pls}.reals_0, ${pls}.reals_1, ${pls}.reals_2", "deadband": "1%", "minInterval": 1, "maxInterval": 60, "note": "Hastighet, moment og strøm: ved endring på 1 %, høyst én i sekundet, og minst hvert minutt" },
+    { "tags": "${pls}.words_2", "ignoreBits": "8, 10", "note": "Statusordet, uten bitene som flimrer" },
+    { "tags": "${pls}.ints_*, ${pls}.dints_*", "mode": "interval", "every": 60 },
+    { "tags": "${pls}.bit*", "flickerChanges": 6, "flickerSeconds": 2, "note": "Bitene: hver endring, med vern mot flimring" },
     { "tags": "calc.*", "deadband": "2%", "minInterval": 2, "maxInterval": 300 },
     { "tags": "*" }
   ],

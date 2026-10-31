@@ -114,7 +114,8 @@ rotfilsystem (eller montert der PostgreSQL skal ligge). Alt er Debian-pakker og 
 
    Web-siden er på `http://<pi-ip>:8090/`.
 4. **Gi serveren et fast navn eller en fast IP-adresse** på nettet, for eksempel `dbserver`. Det er
-   det kjøreverkene får som `server` i `/etc/hmi-recorder.json`, og det følger med til en ny maskin senere.
+   det kjøreverkene får som `--server` til `install.sh` (lagret i `/etc/kjoreverk/recorder.json`), og det
+   følger med til en ny maskin senere.
 5. **Klokka:** `install.sh` har satt den mot NTP-serveren 10.0.0.104, som resten av nettet bruker ([§8](#8-klokka)).
 6. **Lag en bruker for deg selv** (`sudo kv-admin user add <navn> --role admin`), og **legg til
    kjøreverkene** på siden *Kjøreverk*, [§4](#4-legge-til-et-kjøreverk).
@@ -162,13 +163,14 @@ Pi-en i kjøreverket** får recorderen vite hvem den er, hvor serveren er, og n�
 ```
  Databasemaskinen (denne serveren)                 Pi-en i kjøreverket (hmi-core)
  ─────────────────────────────────                 ──────────────────────────────
- 1. Registrer kjøreverket, f.eks. kv_52            3. /etc/kjoreverk/vehicle: kv_52
- 2. Lag nøkkelen ──────── kopier nøkkelen ──────►     /etc/hmi-recorder.json:
-                                                      { "vehicle": "kv_52",
-                                                        "server": "http://dbserver:8090",
-                                                        "token": "<nøkkelen>" }
-                                                    4. Start tjenestene på nytt
- 6. «Sender» på Oversikt og Kjøreverk ◄── data ──  5. Loggen: "the central server answers"
+ 1. Registrer kjøreverket, f.eks. kv_52            3. sudo bash /opt/kjoreverk/install.sh
+ 2. Lag nøkkelen ──────── kopier nøkkelen ──────►       --vehicle kv_52
+                                                        --server http://dbserver:8090
+                                                        --token <nøkkelen>
+                                                      skriver /etc/kjoreverk/vehicle og
+                                                      /etc/kjoreverk/recorder.json, og
+                                                      starter tjenestene på nytt
+ 5. «Sender» på Oversikt og Kjøreverk ◄── data ──  4. Loggen: "the central server answers"
 ```
 
 **Første gang:** lag en bruker med rollen admin, så du kan logge inn på web-siden (se [§6](#6-api-et-og-web-siden)):
@@ -189,8 +191,8 @@ og trykk **+ Nytt kjøreverk**:
 - **Navn** og **notater** er bare for deg. **Regelsett** bestemmer hva recorderen lagrer ([§5](#5-reglene));
   `default` lagrer alt. **Varsel når det har vært stille** er hvor lenge det kan gå uten data før
   kjøreverket blir rødt på Oversikt.
-- Med **Lag nøkkelen med en gang** avkrysset vises nøkkelen etterpå, sammen med den ferdige filen
-  til Pi-en og kommandoene, med Kopier-knapper.
+- Med **Lag nøkkelen med en gang** avkrysset vises nøkkelen etterpå, sammen med kommandoen til Pi-en
+  (4.2), med Kopier-knapper.
 
 **Nøkkelen vises bare én gang.** Serveren lagrer bare et fingeravtrykk (SHA-256) av den, så den kan ikke
 hentes fram igjen. Mister du den, trykk **Lag ny nøkkel** på kjøreverket. Den gamle slutter da å
@@ -203,95 +205,109 @@ sudo kv-admin vehicle add kv_52 --name "Kjøreverk 52"
 sudo kv-admin vehicle key kv_52         # skriver ut nøkkelen, én gang
 ```
 
-### 4.2 På Pi-en i kjøreverket: navnet og oppsettfilen til recorderen
+### 4.2 På Pi-en i kjøreverket: install.sh
 
-**Kjøreverkets navn** står på én linje i `/etc/kjoreverk/vehicle` (hmi-core fra commit 3c8a0a0). Adapteren
-og huben bruker det som kilde i alarmlisten, og recorderen som kjøreverkets id på serveren, med mindre
-`"vehicle"` i oppsettfilen under sier noe annet. Det må være koden fra 4.1:
+`install.sh` i HMI-prosjektet setter opp alt på Pi-en: kjøreverkets navn, tjenestene (hub,
+tcplink-adapter og recorder), recorderens server og nøkkel, klokka og loggene. Det står i
+`README_systemd-service.md` der. Logg inn på Pi-en i kjøreverket (for eksempel med ssh), og kjør det
+fra prosjektmappen, helst `/opt/kjoreverk`, med koden fra 4.1, serverens adresse og nøkkelen:
 
 ```bash
-echo kv_52 | sudo tee /etc/kjoreverk/vehicle
+sudo bash /opt/kjoreverk/install.sh --vehicle kv_52 --server http://dbserver:8090 --token <nøkkelen>
 ```
 
-Recorderen (`hmi-core/recorder.js`) leser oppsettet sitt fra den første av disse filene som finnes:
+| Valg | Hva |
+|---|---|
+| `--vehicle` | Koden fra 4.1, nøyaktig lik. Den skrives i `/etc/kjoreverk/vehicle`, og adapteren og huben bruker den som kilde i alarmlisten, og recorderen som kjøreverkets id på serveren |
+| `--server` | Adressen Pi-en når databasemaskinen på: `http://` + navnet eller IP-adressen + `:8090`. Det du skriver i nettleseren for å åpne web-siden, virker som regel. Sjekk fra Pi-en med `curl http://dbserver:8090/api/health`; den skal svare `{"ok":true,…}` |
+| `--token` | Nøkkelen, hele, uten mellomrom |
+
+Skriptet spør etter det som mangler (PLS-ens adresse første gang), og viser hva det vil gjøre før det
+endrer noe. Det skriver serveren og nøkkelen i `/etc/kjoreverk/recorder.json`, som bare root og
+brukeren tjenestene kjører som, kan lese, setter klokka mot 10.0.0.104 ([§8](#8-klokka)), og starter
+tjenestene på nytt. Det kan kjøres på nytt: bare det du gir, endres. En ny nøkkel på en Pi som er satt
+opp fra før:
+
+```bash
+sudo bash /opt/kjoreverk/install.sh --token <nøkkelen> --yes
+```
+
+**Recorderen leser oppsettet sitt** (`hmi-core/recorder.js`) fra den første av disse filene som finnes:
 
 | Fil | Leses |
 |---|---|
-| `/etc/hmi-recorder.json` | **først. Bruk denne.** |
-| `hmi-core/config/recorder.json` | bare hvis filen i `/etc` mangler |
-| `hmi-core/config/recorder.example.json` | **aldri.** Den viser bare hvilke innstillinger som finnes |
+| `/etc/kjoreverk/recorder.json` | **først.** `install.sh` skriver den |
+| `/etc/hmi-recorder.json` | bare hvis den over mangler: en Pi som ble satt opp før `install.sh`. `install.sh` flytter den til `/etc/kjoreverk/recorder.json` |
+| `hmi-core/config/recorder.json` | bare hvis begge de over mangler |
+| `hmi-core/config/recorder.example.json` | **aldri.** Den viser bare hvilke innstillinger som finnes (køen i RAM, hvor ofte den sender); de trenger du vanligvis ikke |
 
-Finnes ingen av de to første, stopper recorderen med *«The recorder needs the central server's
-address …»*, og systemd prøver å starte den igjen hvert 2. sekund. Filen hører hjemme i `/etc` fordi
-nøkkelen da ikke ligger i prosjektmappen, der den kunne havne i git, og fordi den blir liggende når
-du bytter ut `hmi-core` med en nyere versjon.
+Står det `"vehicle"` i filen, går det foran `/etc/kjoreverk/vehicle`. `install.sh` skriver det ikke.
+Filen hører hjemme i `/etc` fordi nøkkelen da ikke ligger i prosjektmappen, der den kunne havne i git,
+og fordi den blir liggende når du bytter ut `hmi-core` med en nyere versjon. Har du skrevet nøkkelen inn
+i `recorder.example.json`, ta den ut igjen. Er `hmi-core` hentet med git, setter dette filen tilbake (i
+mappen over `hmi-core`):
 
-1. **Lag filen** (logg inn på Pi-en i kjøreverket, for eksempel med ssh):
+```bash
+git checkout -- hmi-core/config/recorder.example.json
+```
+
+**For hånd, uten `install.sh`.** Tjenestene må finnes fra før (`README_systemd-service.md` i
+HMI-prosjektet, avsnittet om recorderen):
+
+1. Kjøreverkets navn, koden fra 4.1:
 
    ```bash
-   sudo nano /etc/hmi-recorder.json
+   echo kv_52 | sudo tee /etc/kjoreverk/vehicle
    ```
 
-   Lim inn, med dine verdier, lagre med Ctrl+O og Enter, og lukk med Ctrl+X:
+2. Oppsettfilen til recorderen. Rett `server` og `token`, eller lim inn dette hvis filen er ny. Lagre med
+   Ctrl+O og Enter, og lukk med Ctrl+X:
+
+   ```bash
+   sudo nano /etc/kjoreverk/recorder.json
+   ```
 
    ```json
    {
-     "vehicle": "kv_52",
      "server": "http://dbserver:8090",
      "token": "nøkkelen fra databasemaskinen"
    }
    ```
 
-   | Felt | Hva |
-   |---|---|
-   | `vehicle` | Koden fra 4.1, nøyaktig lik. Kan utelates når `/etc/kjoreverk/vehicle` har den; mangler begge, brukes vertsnavnet til Pi-en. Står det i begge, gjelder dette |
-   | `server` | Adressen Pi-en når databasemaskinen på: `http://` + navnet eller IP-adressen + `:8090`. Det du skriver i nettleseren for å åpne web-siden, virker som regel. Sjekk fra Pi-en med `curl http://dbserver:8090/api/health`; den skal svare `{"ok":true,…}` |
-   | `token` | Nøkkelen, hele, uten mellomrom |
-
-   `config/recorder.example.json` i `hmi-core` viser resten av innstillingene (køen i RAM, hvor ofte den
-   sender). De trenger du vanligvis ikke.
-2. **Bare root og brukeren recorderen kjører som, skal kunne lese den.** Brukeren står i `User=` i
+3. Bare root og brukeren tjenestene kjører som, skal kunne lese den. Brukeren står i `User=` i
    `kjoreverk@.service`; kommandoen under henter den derfra:
 
    ```bash
-   sudo chown root:"$(systemctl show -p User --value kjoreverk@recorder.service)" /etc/hmi-recorder.json
+   sudo chown root:"$(systemctl show -p User --value kjoreverk@recorder.service)" /etc/kjoreverk/recorder.json
    ```
 
    ```bash
-   sudo chmod 640 /etc/hmi-recorder.json
+   sudo chmod 640 /etc/kjoreverk/recorder.json
    ```
 
-3. **Har du skrevet nøkkelen inn i `recorder.example.json`**, ta den ut igjen, så den ikke havner i git.
-   Er `hmi-core` hentet med git, setter dette filen tilbake (i mappen over `hmi-core`):
-
-   ```bash
-   git checkout -- hmi-core/config/recorder.example.json
-   ```
-
-4. **Start tjenestene på nytt**, så de leser navnet og oppsettet (de leser dem bare når de starter):
+4. Start tjenestene på nytt, så de leser navnet og oppsettet (de leser dem bare når de starter):
 
    ```bash
    sudo systemctl restart 'kjoreverk@*'
    ```
 
-   Første gang må tjenesten lages. Det står i `README_systemd-service.md` i HMI-prosjektet, avsnittet
-   om recorderen. Kort fortalt: `/etc/kjoreverk/instances/recorder.env` med
-   `SCRIPT_ARGS=hmi-core/recorder.js`, og `sudo systemctl enable --now kjoreverk@recorder.service`.
-   Huben (`kjoreverk@hub.service`) må også kjøre: recorderen sender ingenting før den har fått
-   taggene derfra.
-5. **Klokka:** recorderen sender ingenting før Pi-ens klokke er synkronisert (den spør `timedatectl`).
-   Pi-ene bruker NTP-serveren på nettet, 10.0.0.104 ([§8](#8-klokka)). Har
-   serveren svart, men klokka ikke blitt synkronisert innen 10 minutter, sender den likevel, merket.
-6. **Sjekk loggen:**
+**Huben** (`kjoreverk@hub.service`) må også kjøre: recorderen sender ingenting før den har fått taggene
+derfra.
 
-   ```bash
-   journalctl -u kjoreverk@recorder.service -n 30 --no-pager
-   ```
+**Klokka:** recorderen sender ingenting før Pi-ens klokke er synkronisert (den spør `timedatectl`). Har
+serveren svart, men klokka ikke blitt synkronisert innen 10 minutter, sender den likevel, merket.
 
-   Første linje sier hvilket navn recorderen bruker: `recorder 1.0.0 for kv_52: hub …`. Det må være koden
-   på serveren. Så skal den si `the central server answers (http://dbserver:8090)` og
-   `Recording rules version … from the central server in use`. På web-siden går statusen til
-   **Sender** innen et halvt minutt, og *Kjøreverk* viser IP-adressen det sender fra og recorder-versjonen.
+**Sjekk loggen:**
+
+```bash
+journalctl -u kjoreverk@recorder.service -n 30 --no-pager
+```
+
+Første linje sier hvilket navn recorderen bruker, og hvilken fil den leste: `recorder 1.0.0 for kv_52:
+hub …, settings from /etc/kjoreverk/recorder.json`. Navnet må være koden på serveren. Så skal den si
+`the central server answers (http://dbserver:8090)` og `Recording rules version … from the central server
+in use`. På web-siden går statusen til **Sender** innen et halvt minutt, og *Kjøreverk* viser IP-adressen
+det sender fra og recorder-versjonen.
 
 ### 4.3 Feilsøking
 
@@ -299,16 +315,16 @@ du bytter ut `hmi-core` med en nyere versjon.
 
 | Loggen sier | Hvorfor | Gjør |
 |---|---|---|
-| `The recorder needs the central server's address, like "server": … in /etc/hmi-recorder.json` | Ingen oppsettfil er lest, for eksempel fordi bare `recorder.example.json` er endret | Lag `/etc/hmi-recorder.json` (4.2) |
-| `The recorder's settings in /etc/hmi-recorder.json can't be read: EACCES` | Brukeren recorderen kjører som, kan ikke lese filen | `chown` i 4.2, steg 2 |
+| `The recorder needs the central server's address, like "server": … in /etc/kjoreverk/recorder.json` | Ingen oppsettfil er lest, for eksempel fordi bare `recorder.example.json` er endret | Kjør `install.sh` med `--server` og `--token` (4.2) |
+| `The recorder's settings in /etc/kjoreverk/recorder.json can't be read: EACCES` | Brukeren recorderen kjører som, kan ikke lese filen | Kjør `install.sh` på nytt, eller `chown` og `chmod` i 4.2 |
 | `… can't be read:` fulgt av noe om JSON (`Unexpected token`, `Expected …`) | Filen er ikke gyldig JSON: et komma for mye eller for lite, eller manglende anførselstegn | Sammenlign med eksempelet i 4.2 |
 | `the central server can't be reached (connect ECONNREFUSED …)` | Feil port, eller serveren kjører ikke | `curl http://<server>:8090/api/health` fra Pi-en; `systemctl status kjoreverk-server` på databasemaskinen |
 | `… (getaddrinfo ENOTFOUND dbserver)` | Pi-en kjenner ikke navnet | Bruk IP-adressen i `server`, eller legg navnet i `/etc/hosts` |
 | `… (connect ETIMEDOUT …)` / `no answer in 15 s` | Feil IP-adresse, eller en brannmur | Sjekk adressen; `ping` den |
-| `The central server refused this recorder's key for kv_52: the key is unknown or has been revoked` | Nøkkelen er feil, ikke kopiert helt, eller en ny er laget siden | Lag en ny nøkkel (4.1) og legg den inn |
-| `… the key belongs to kv52, not kv_52` | Navnet recorderen sender (`/etc/kjoreverk/vehicle`, eller `"vehicle"` i `/etc/hmi-recorder.json`), er ikke koden nøkkelen ble laget for. Første linje i loggen viser navnet: `recorder 1.0.0 for kv_52` | Gi Pi-en koden (`echo kv52 \| sudo tee /etc/kjoreverk/vehicle`, så `sudo systemctl restart 'kjoreverk@*'`), eller gi kjøreverket navnet som kode på serveren (feltet *Kode* på siden Kjøreverk, eller `sudo kv-admin vehicle rename kv52 kv_52`) |
+| `The central server refused this recorder's key for kv_52: the key is unknown or has been revoked` | Nøkkelen er feil, ikke kopiert helt, eller en ny er laget siden | Lag en ny nøkkel (4.1), og `sudo bash /opt/kjoreverk/install.sh --token <nøkkelen> --yes` på Pi-en (4.2) |
+| `… the key belongs to kv52, not kv_52` | Navnet recorderen sender (`/etc/kjoreverk/vehicle`, eller `"vehicle"` i `/etc/kjoreverk/recorder.json`), er ikke koden nøkkelen ble laget for. Første linje i loggen viser navnet: `recorder 1.0.0 for kv_52` | Gi Pi-en koden (`sudo bash /opt/kjoreverk/install.sh --vehicle kv52 --yes`), eller gi kjøreverket navnet som kode på serveren (feltet *Kode* på siden Kjøreverk, eller `sudo kv-admin vehicle rename kv52 kv_52`) |
 | `… kv_52 is disabled on the server` | Kjøreverket er slått av | Kryss av for *Aktiv* på siden Kjøreverk |
-| `the clock isn't synchronized yet (timedatectl): nothing is sent until it is` | Se 4.2, steg 5 | [§8](#8-klokka) |
+| `the clock isn't synchronized yet (timedatectl): nothing is sent until it is` | Se *Klokka* i 4.2 | [§8](#8-klokka) |
 
 Etter et avslag på nøkkelen prøver recorderen igjen hvert 5. minutt. Vil du ikke vente, start den på
 nytt.
@@ -375,8 +391,11 @@ Formatet står i [docs/PROTOKOLL.md](docs/PROTOKOLL.md) §7, og
   noen lager noe bedre.
 - **Et tillegg per kjøreverk** (`vehicle extra`) legges foran settets regler og pauser. `events` og
   `eventsMin` kommer alltid fra settet.
-- **Første regel som treffer, gjelder.** `${kv}` i et mønster byttes ut på Pi-en med prosjektets
-  variabler, så samme sett virker der enhetene heter forskjellig.
+- **Første regel som treffer, gjelder.** `${pls}` i et mønster byttes ut på Pi-en med prosjektets
+  variabler (`vars` i `hmi.json`; i kjøreverkene er `pls` = `pls`), så samme sett virker der enhetene
+  heter forskjellig. Forhåndsvisningen på siden *Regler* kjenner ikke variablene på Pi-en: den bruker
+  `pls` når kjøreverket har tagger som `pls.bit03`, ellers det vanligste prefikset, og du kan skrive
+  inn en annen verdi.
 - **Hver endring får et nytt versjonsnummer.** Recorderen ser det i svaret på neste batch og henter
   reglene på nytt (`GET /rules` med `If-None-Match`). En endring i tillegget for kv07 får bare kv07
   til å hente.
@@ -539,10 +558,9 @@ sudo systemctl restart systemd-timesyncd
 Sjekk: `timedatectl` skal si `System clock synchronized: yes`, og `timedatectl timesync-status` viser
 `Server: 10.0.0.104`. Oversikt på web-siden viser det samme under *Serverens klokke*.
 
-**På Pi-ene i kjøreverkene** er det det samme: `NTP=10.0.0.104` under `[Time]` i
-`/etc/systemd/timesyncd.conf` (eller i en fil i `/etc/systemd/timesyncd.conf.d/` som over). Recorderen
-sender ingenting før klokka er synkronisert. `README_systemd-service.md` i HMI-prosjektet sier
-`NTP=dbserver`, fra da planen var at databasemaskinen skulle være tidskilden. Bruk 10.0.0.104.
+**På Pi-ene i kjøreverkene** er det det samme, og `install.sh` i HMI-prosjektet setter det opp:
+`NTP=10.0.0.104` i `/etc/systemd/timesyncd.conf.d/kjoreverk.conf`, eller i chrony hvis Pi-en bruker det
+(`--ntp` for en annen adresse). Recorderen sender ingenting før klokka er synkronisert.
 
 **PLS-ene** kan bruke 10.0.0.104 direkte, med den innebygde NTP-klienten (i TIA Portal: egenskapene til
 CPU-en, *Time of day*, *Enable time synchronization via NTP server*). Tidene som lagres, kommer fra Pi-en,
@@ -627,8 +645,8 @@ brudd per batch. Kjøreverkene heter `sim01` … og blir stående i databasen. K
 måle hva den tåler; på en x86-maskin ga 42 × 100 punkter/s 3 300 lagrede punkter i sekundet med 25 ms
 per batch og 0 feil.
 
-**Mot den ekte recorderen:** legg til et kjøreverk, lag nøkkelen, legg den i `/etc/hmi-recorder.json`
-på en Pi med hmi-core, og følg `journalctl -u kjoreverk@recorder -f` der og `journalctl -u kjoreverk-server -f`
+**Mot den ekte recorderen:** legg til et kjøreverk, lag nøkkelen, gi den til `install.sh` på en Pi med
+hmi-core ([§4.2](#42-på-pi-en-i-kjøreverket-installsh)), og følg `journalctl -u kjoreverk@recorder -f` der og `journalctl -u kjoreverk-server -f`
 her. En trend i HMI-en som ber om mer enn huben husker, skal da få det fra serveren.
 
 **Protokollen og regelmotoren** deles med HMI-prosjektet: endres `docs/PROTOKOLL.md`, endres den

@@ -3,7 +3,7 @@
  * regelsett og grensen for stille-varselet, slå av og på, og se øktene og hullene (docs/PLAN.md §4.7).
  *
  * Alle kan se. Å endre krever innlogging: admin for alt, rules for regelsettet. Nøkkelen vises bare én gang,
- * rett etter at den er laget, sammen med oppsettfilen Pi-en i kjøreverket trenger.
+ * rett etter at den er laget, sammen med kommandoen Pi-en i kjøreverket trenger.
  */
 (function () {
   'use strict';
@@ -25,25 +25,34 @@
     };
   }
 
+  // install.sh i hmi-core skriver /etc/kjoreverk/vehicle og /etc/kjoreverk/recorder.json, og starter tjenestene
   function piSteps(code, key, c) {
-    const json = JSON.stringify({ vehicle: code, server: serverUrl(), token: key || '<nøkkelen>' }, null, 2);
+    const token = key || '<nøkkelen>';
+    const json = JSON.stringify({ server: serverUrl(), token }, null, 2);
     const local = /^(localhost|127\.|\[::1\])/.test(location.hostname);
     return `<ol class="steps">
-      <li>Logg inn på Pi-en i kjøreverket (ssh). Kjøreverkets navn står i <code>/etc/kjoreverk/vehicle</code>, og det må være <code>${esc(code)}</code>, nøyaktig som koden her:
-        ${c.block(`echo ${code} | sudo tee /etc/kjoreverk/vehicle`)}
-        <div class="hint">Adapteren og huben bruker det som kilde i alarmlisten. Recorderen bruker <code>"vehicle"</code> i filen under, og ellers dette.</div></li>
-      <li>Lag oppsettfilen til recorderen. Den skal ligge i <code>/etc</code>, ikke i <code>hmi-core/config</code>:
-        ${c.block('sudo nano /etc/hmi-recorder.json')}</li>
-      <li>Lim inn dette, lagre (Ctrl+O, Enter) og lukk (Ctrl+X):
-        ${c.block(json)}
-        <div class="hint">${local ? '<b>Du har åpnet denne siden på serveren selv:</b> bytt <code>localhost</code> med serverens navn eller faste IP-adresse på nettet. ' : ''}<code>server</code> er adressen kjøreverkene når denne serveren på. Bruk serverens faste navn eller IP-adresse hvis den er en annen enn i nettleseren din.${key ? '' : ' <code>&lt;nøkkelen&gt;</code> er nøkkelen fra «Lag ny nøkkel»: den vises bare når den lages.'}</div></li>
-      <li>Bare root og brukeren recorderen kjører som, skal kunne lese den:
-        ${c.block('sudo chown root:"$(systemctl show -p User --value kjoreverk@recorder.service)" /etc/hmi-recorder.json\nsudo chmod 640 /etc/hmi-recorder.json')}</li>
-      <li>Start tjenestene på nytt, så de leser navnet og oppsettet. Første gang må tjenestene lages; se <code>README_systemd-service.md</code> i HMI-prosjektet, eller README her, §4.
-        ${c.block("sudo systemctl restart 'kjoreverk@*'")}</li>
+      <li>Logg inn på Pi-en i kjøreverket (ssh), og kjør <code>install.sh</code> i prosjektmappen med koden, serveren og nøkkelen:
+        ${c.block(`sudo bash /opt/kjoreverk/install.sh --vehicle ${code} --server ${serverUrl()} --token ${token}`)}
+        <div class="hint">${local ? '<b>Du har åpnet denne siden på serveren selv:</b> bytt <code>localhost</code> med serverens navn eller faste IP-adresse på nettet. ' : ''}<code>--server</code> er adressen kjøreverkene når denne serveren på. Bruk serverens faste navn eller IP-adresse hvis den er en annen enn i nettleseren din.${key ? '' : ' <code>&lt;nøkkelen&gt;</code> er nøkkelen fra «Lag ny nøkkel»: den vises bare når den lages.'}
+        Skriptet spør etter det som mangler (PLS-ens adresse), og viser hva det vil gjøre før det endrer noe. Det skriver kjøreverkets navn i <code>/etc/kjoreverk/vehicle</code> og serveren og nøkkelen i <code>/etc/kjoreverk/recorder.json</code>, og starter tjenestene på nytt. Ligger prosjektet et annet sted enn <code>/opt/kjoreverk</code>, bruk den mappen.</div></li>
       <li>Sjekk loggen. Første linje sier <code>recorder … for ${esc(code)}</code>, så <code>the central server answers</code> og <code>Recording rules version …</code>, og her blir statusen «Sender» innen et halvt minutt:
         ${c.block('journalctl -u kjoreverk@recorder.service -n 30 --no-pager')}</li>
-    </ol>`;
+    </ol>
+    <details class="section"><summary>Uten install.sh, for hånd</summary>
+      <ol class="steps">
+        <li>Kjøreverkets navn, nøyaktig som koden her. Adapteren og huben bruker det som kilde i alarmlisten, og recorderen som kjøreverkets id:
+          ${c.block(`echo ${code} | sudo tee /etc/kjoreverk/vehicle`)}</li>
+        <li>Oppsettfilen til recorderen:
+          ${c.block('sudo nano /etc/kjoreverk/recorder.json')}
+          Rett <code>server</code> og <code>token</code>, eller lim inn dette hvis filen er ny. Lagre (Ctrl+O, Enter) og lukk (Ctrl+X):
+          ${c.block(json)}</li>
+        <li>Bare root og brukeren tjenestene kjører som, skal kunne lese den:
+          ${c.block('sudo chown root:"$(systemctl show -p User --value kjoreverk@recorder.service)" /etc/kjoreverk/recorder.json\nsudo chmod 640 /etc/kjoreverk/recorder.json')}</li>
+        <li>Start tjenestene på nytt, så de leser navnet og oppsettet:
+          ${c.block("sudo systemctl restart 'kjoreverk@*'")}</li>
+      </ol>
+      <div class="hint">Recorderen leser <code>/etc/kjoreverk/recorder.json</code> først. <code>/etc/hmi-recorder.json</code>, fra en Pi som ble satt opp før install.sh, leses bare når den nye mangler, og install.sh flytter den. Står det <code>"vehicle"</code> i filen, går det foran <code>/etc/kjoreverk/vehicle</code>.</div>
+    </details>`;
   }
 
   function showKey(code, key) {
@@ -82,7 +91,7 @@
           <label>Kode (det kjøreverket heter på serveren)<input name="code" required maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9_.\\-]*" placeholder="${next}" value="${next}"></label>
           <label>Navn<input name="name" maxlength="100" placeholder="Kjøreverk ${esc(String(Number((next.match(/(\d+)$/) || [])[1]) || ''))}"></label>
         </div>
-        <div class="hint">Koden må være nøyaktig lik kjøreverkets navn på Pi-en: <code>/etc/kjoreverk/vehicle</code> (eller <code>"vehicle"</code> i <code>/etc/hmi-recorder.json</code>). Ellers avviser serveren nøkkelen.</div>
+        <div class="hint">Koden må være nøyaktig lik kjøreverkets navn på Pi-en: <code>/etc/kjoreverk/vehicle</code> (eller <code>"vehicle"</code> i <code>/etc/kjoreverk/recorder.json</code>). Ellers avviser serveren nøkkelen.</div>
         <div class="row2">
           <label>Regelsett<select name="ruleSet">${data.ruleSets.map(r => `<option${r === 'default' ? ' selected' : ''}>${esc(r)}</option>`).join('')}</select></label>
           <label>Varsel når det har vært stille i<select name="silentAfter">${silentOptions(7200)}</select></label>
@@ -240,7 +249,7 @@
       }
       if (f.ruleSet.value !== v.rule_set) body.ruleSet = f.ruleSet.value;
       if (!Object.keys(body).length) return;
-      if (body.code && !(await S.confirm(`Ny kode for ${v.code}?`, `<b>${esc(v.code)}</b> blir <b>${esc(body.code)}</b>. Dataene, nøkkelen og reglene følger med. Recorderen på Pi-en må sende den nye koden: <code>/etc/kjoreverk/vehicle</code> (eller <code>"vehicle"</code> i <code>/etc/hmi-recorder.json</code>) må være <code>${esc(body.code)}</code>.`, 'Endre koden'))) return;
+      if (body.code && !(await S.confirm(`Ny kode for ${v.code}?`, `<b>${esc(v.code)}</b> blir <b>${esc(body.code)}</b>. Dataene, nøkkelen og reglene følger med. Recorderen på Pi-en må sende den nye koden: <code>/etc/kjoreverk/vehicle</code> (eller <code>"vehicle"</code> i <code>/etc/kjoreverk/recorder.json</code>) må være <code>${esc(body.code)}</code>.`, 'Endre koden'))) return;
       if (body.active === false && !(await S.confirm(`Slå av ${v.code}?`, 'Recorderen i kjøreverket får 403 og sender ingenting før det slås på igjen. Den holder dataene i RAM så lenge den har plass.', 'Slå av', true))) return;
       try {
         const r = await api(`/vehicles/${encodeURIComponent(v.code)}`, { method: 'PATCH', body });

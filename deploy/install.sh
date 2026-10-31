@@ -135,7 +135,7 @@ cat <<EOF
 
 Done. Next:
   sudo kv-admin vehicle add kv01 --name "Kjøreverk 1"     # one per vehicle
-  sudo kv-admin vehicle key kv01                          # the key for /etc/hmi-recorder.json on that Pi
+  sudo kv-admin vehicle key kv01                          # the key for install.sh --token on that Pi
   sudo kv-admin status
   http://$(hostname -I | awk '{print $1}'):$(grep -o '"port": *[0-9]*' $CONF_DIR/config.json | grep -o '[0-9]*' || echo 8090)/
 Logs: journalctl -u kjoreverk-server -f

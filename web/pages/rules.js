@@ -111,7 +111,7 @@
       <div class="tabs"><button data-tab="table" class="on">Regler</button><button data-tab="json">JSON</button></div>
       <div class="tab-table">
         <table class="ruletable"><thead><tr><th>#</th><th>Tagger</th><th>Hva som lagres</th><th>Notat</th><th></th></tr></thead><tbody></tbody></table>
-        <div class="actions" style="justify-content:flex-start">${w ? '<button class="addrule">+ Ny regel</button>' : ''}<span class="hint">Første regel som treffer en tag, gjelder. En tag ingen regel treffer, lagres ikke. <code>\${kv}</code> byttes ut på Pi-en med prosjektets variabel (f.eks. kv_1).</span></div>
+        <div class="actions" style="justify-content:flex-start">${w ? '<button class="addrule">+ Ny regel</button>' : ''}<span class="hint">Første regel som treffer en tag, gjelder. En tag ingen regel treffer, lagres ikke. <code>\${pls}</code> byttes ut på Pi-en med prosjektets variabel (<code>vars</code> i <code>hmi.json</code>; i kjøreverkene <code>pls</code>).</span></div>
       </div>
       <div class="tab-json" hidden><textarea class="json" spellcheck="false" rows="18"${ro}></textarea>
         <div class="actions" style="justify-content:flex-start">${w ? '<button class="applyjson">Bruk JSON-en</button>' : ''}<span class="hint">Formatet står i docs/PROTOKOLL.md §7.</span></div></div>
@@ -191,7 +191,7 @@
     const v = k => (r[k] === undefined || r[k] === null ? '' : esc(r[k]));
     const m = S.modal(`<h2>${i >= 0 ? `Regel ${i + 1}` : 'Ny regel'}</h2>
       <form class="form ruleform">
-        <label>Tagger <span class="hint">mønstre med komma mellom: <code>\${kv}.reals_0, \${kv}.bit*</code>; <code>*</code> passer med alt</span><input name="tags" required value="${v('tags')}"></label>
+        <label>Tagger <span class="hint">mønstre med komma mellom: <code>\${pls}.reals_0, \${pls}.bit*</code>; <code>*</code> passer med alt</span><input name="tags" required value="${v('tags')}"></label>
         <label>Hva som lagres<select name="mode">${Object.entries(MODES).map(([k, t]) => `<option value="${k}"${r.mode === k ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
         <div class="m-change">
           <div class="row2">
@@ -328,15 +328,15 @@
       Det som er lagret, er allerede valgt ut av reglene som gjaldt da, så forhåndsvisningen viser hva strengere regler ville spart, ikke hva løsere regler ville tatt med i tillegg.</p>
       <div class="grid3"><label>Kjøreverk<select name="pv">${list.map(c => `<option>${esc(c)}</option>`).join('')}</select></label>
       <label>Siste<select name="hours"><option value="1">time</option><option value="8">8 timer</option><option value="24" selected>døgn</option><option value="72">3 døgn</option><option value="168">7 døgn</option></select></label>
-      <label><span><code>\${kv}</code> er</span><input name="kv" placeholder="gjettes fra taggene"></label></div>
+      <label><span><code>\${pls}</code> er</span><input name="pls" placeholder="gjettes fra taggene"></label></div>
       <div class="actions" style="justify-content:flex-start"><button class="run">Forhåndsvis</button><span class="muted status"></span></div><div class="out"></div>`;
     box.querySelector('.run').onclick = async () => {
       const status = box.querySelector('.status'), out = box.querySelector('.out');
       const rec = ed.target.set ? Object.assign({}, ed.rec, { pauses: [] })
         : { events: ed.setRec.events, eventsMin: ed.setRec.eventsMin, rules: ed.rec.rules.concat(ed.setRec.rules || []), pauses: [] };
       const body = { recording: rec, vehicle: box.querySelector('[name=pv]').value, hours: Number(box.querySelector('[name=hours]').value) };
-      const kv = box.querySelector('[name=kv]').value.trim();
-      if (kv) body.vars = { kv };
+      const pls = box.querySelector('[name=pls]').value.trim();
+      if (pls) body.vars = { pls };
       status.textContent = 'regner …';
       out.innerHTML = '';
       try {
@@ -344,7 +344,7 @@
         status.textContent = `${r.ms} ms`;
         const pct = r.total.now ? Math.round((r.total.would - r.total.now) / r.total.now * 100) : 0;
         const ruleNo = i => (i === null ? '–' : i + 1);
-        out.innerHTML = `<p>${esc(r.vehicle)}, siste ${r.hours} t (<code>\${kv}</code> = ${esc(r.vars.kv || '–')}): <b>${fmtNum(r.total.now)}</b> lagret nå, <b>${fmtNum(r.total.would)}</b> med disse reglene
+        out.innerHTML = `<p>${esc(r.vehicle)}, siste ${r.hours} t (<code>\${pls}</code> = ${esc(r.vars.pls || '–')}): <b>${fmtNum(r.total.now)}</b> lagret nå, <b>${fmtNum(r.total.would)}</b> med disse reglene
           <span class="badge ${pct < 0 ? 'ok' : pct > 0 ? 'warn' : ''}">${pct > 0 ? '+' : ''}${pct} %</span>${r.flickers ? ` · ${r.flickers} flimreepisoder` : ''}</p>
           <div class="sections"><div><h3 class="muted">Per regel</h3><table><thead><tr><th>#</th><th>Tagger</th><th class="num">Tagger truffet</th><th class="num">Nå</th><th class="num">Med reglene</th></tr></thead><tbody>
           ${r.rules.filter(x => x.tagCount).map(x => `<tr><td>${x.index === null ? '–' : x.index + 1}</td><td><code>${esc(x.tags)}</code></td><td class="num">${x.tagCount}</td><td class="num">${fmtNum(x.now)}</td><td class="num">${fmtNum(x.would)}</td></tr>`).join('')}</tbody></table></div>
