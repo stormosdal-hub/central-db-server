@@ -7,22 +7,16 @@
   const { api, el, esc, fmtTime, ago, fmtNum, fmtBytes } = window.Shell;
   let timer = null, root = null, selected = null;
 
-  function status(v) {
-    if (!v.active) return ['Slått av', ''];
-    if (!v.key_prefix) return ['Ingen nøkkel', 'warn'];
-    if (v.last_batch_at === null) return ['Aldri sendt', 'warn'];
-    if (v.sending) return ['Sender', 'ok'];
-    if (v.silent) return ['Stille', 'bad'];
-    return ['Venter', 'info'];
-  }
+  const status = v => window.Shell.vehicleStatus(v);
 
   function render(d) {
     const vs = d.vehicles;
     const sending = vs.filter(v => v.sending).length, silent = vs.filter(v => v.active && v.key_prefix && v.silent).length, unsynced = vs.filter(v => v.clock_synced === false).length;
+    const refused = vs.filter(v => status(v)[0] === 'Avvist').length;
     const points = vs.reduce((n, v) => n + v.points_24h, 0), gaps = vs.reduce((n, v) => n + v.gaps_24h, 0), alarms = vs.reduce((n, v) => n + v.alarms_24h, 0);
     root.querySelector('.cards').innerHTML = [
       ['Kjøreverk', vs.length, ''], ['Sender nå', sending, sending === vs.filter(v => v.active && v.key_prefix).length && sending ? 'ok' : ''],
-      ['Stille for lenge', silent, silent ? 'bad' : 'ok'], ['Klokke ikke synkronisert', unsynced, unsynced ? 'warn' : ''],
+      ['Stille for lenge', silent, silent ? 'bad' : 'ok'], ...(refused ? [['Avvist av serveren', refused, 'bad']] : []), ['Klokke ikke synkronisert', unsynced, unsynced ? 'warn' : ''],
       ['Punkter siste døgn', fmtNum(points), ''], ['Hull siste døgn', gaps, gaps ? 'warn' : ''], ['Alarmer siste døgn', alarms, alarms ? 'warn' : ''],
     ].map(([k, v, c]) => `<div class="card"><div class="k">${k}</div><div class="v ${c}">${v}</div></div>`).join('');
 
@@ -41,10 +35,10 @@
     const tbody = root.querySelector('tbody');
     if (!vs.length) { tbody.innerHTML = '<tr><td colspan="11" class="empty">Ingen kjøreverk ennå. Legg dem til på siden <a href="#/vehicles">Kjøreverk</a>, eller med <code>sudo kv-admin vehicle add kv01</code> på databasemaskinen.</td></tr>'; return; }
     tbody.innerHTML = vs.map(v => {
-      const [txt, cls] = status(v);
+      const [txt, cls, why] = status(v);
       const clock = v.clock_synced === null ? '–' : v.clock_synced ? `<span class="badge ok">synk${v.clock_offset_ms !== null ? ` ${v.clock_offset_ms > 0 ? '+' : ''}${v.clock_offset_ms} ms` : ''}</span>` : '<span class="badge bad">ikke synk</span>';
       return `<tr data-code="${esc(v.code)}" class="${selected === v.code ? 'sel' : ''}">
-        <td><b>${esc(v.code)}</b></td><td>${esc(v.name)}</td><td><span class="badge ${cls}">${txt}</span></td>
+        <td><b>${esc(v.code)}</b></td><td>${esc(v.name)}</td><td><span class="badge ${cls}" title="${esc(why)}">${txt}</span></td>
         <td title="${fmtTime(v.last_batch_at)}">${ago(v.last_batch_at)}</td><td>${fmtTime(v.last_ts)}</td>
         <td>${clock}</td><td>${esc(v.recorder_version || '–')}</td><td>${esc(v.rule_set)}${v.has_extra ? '+' : ''} <span class="muted">v${v.rules_version}</span></td>
         <td class="num">${fmtNum(v.tags)}</td><td class="num">${fmtNum(v.points_24h)}</td><td class="num">${v.gaps_24h ? `<span class="badge warn">${v.gaps_24h}</span>` : '0'}</td><td class="num">${v.alarms_24h ? `<span class="badge bad">${v.alarms_24h}</span>` : '0'}</td>

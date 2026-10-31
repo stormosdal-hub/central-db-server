@@ -79,6 +79,11 @@ test('kjøreverk, brukere og kommandolinjen', async t => {
     r = await cli('rules', 'set', 'bad', path.join(__dirname, 'helpers.js'));
     assert.equal(r.code, 1);
     assert.match(r.out, /can't be read as JSON/);
+    r = await cli('vehicle', 'rename', 'kv09', 'kv_09');
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /kv09 is now kv_09/);
+    r = await cli('vehicle', 'rename', 'kv_09', 'kv09');
+    assert.equal(r.code, 0, r.out);
     r = await cli('vehicle', 'disable', 'kv09');
     assert.equal(r.code, 0);
     r = await cli('status');

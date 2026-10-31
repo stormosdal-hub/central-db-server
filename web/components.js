@@ -140,5 +140,18 @@
     return `${Math.floor(s / 86400)} d ${Math.floor((s % 86400) / 3600)} t`;
   }
 
-  Object.assign(S, { timePicker, vehiclePicker, tagInput, vehicles, duration, localInput: local });
+  // statusen til et kjøreverk: [tekst, klasse, forklaring]. Avvist: serveren har avvist recorderen etter siste
+  // gang den slapp inn, for eksempel fordi navnet på Pi-en ikke er likt koden her.
+  function vehicleStatus(v) {
+    const refused = v.last_refused_at && (!v.last_seen || v.last_refused_at > v.last_seen);
+    if (!v.active) return ['Slått av', '', 'Aktiv er ikke krysset av: recorderen får 403'];
+    if (!v.key_prefix) return ['Ingen nøkkel', 'warn', 'Lag en nøkkel på siden Kjøreverk'];
+    if (refused) return ['Avvist', 'bad', `Serveren avviste den ${S.fmtTime(v.last_refused_at)} fra ${v.last_refused_ip || '?'}: ${v.last_refused_reason || ''}`];
+    if (v.last_batch_at === null) return v.last_seen ? ['Har hilst, ikke sendt', 'warn', 'Recorderen kommer gjennom, men har ikke sendt data ennå'] : ['Aldri hørt fra', 'warn', 'Ingen recorder har koblet til med nøkkelen'];
+    if (v.sending) return ['Sender', 'ok', ''];
+    if (v.silent) return ['Stille', 'bad', `Ingenting på lenger enn ${duration(v.silent_after_s)}`];
+    return ['Venter', 'info', 'Har sendt før, men ikke de siste 90 sekundene'];
+  }
+
+  Object.assign(S, { timePicker, vehiclePicker, tagInput, vehicles, duration, localInput: local, vehicleStatus });
 })();

@@ -29,7 +29,8 @@
 - **Nøkkel:** `Authorization: Bearer <nøkkel>`. Hvert kjøreverk har sin egen nøkkel, laget på
   serverens web-side. Feltet `vehicle` i forespørselen må høre til nøkkelen.
 - **Tider** er heltall, millisekunder siden 1970-01-01 UTC.
-- **Kjøreverkets id** (`vehicle`) er en kort tekst, for eksempel `kv07`.
+- **Kjøreverkets id** (`vehicle`) er en kort tekst, for eksempel `kv_52`. Pi-en har den i
+  `/etc/kjoreverk/vehicle`, og den er også kilden i hendelsene fra kjøreverket.
 - **Verdier:**
   - **Tall og av/på** er tall. Av/på er `1` og `0`, som i huben.
   - **Tekst** sendes for seg, i `text`.
@@ -65,7 +66,7 @@ Sendes når recorderen starter, og hver gang serveren svarer etter å ha vært u
 ```json
 {
   "protocol": 1,
-  "vehicle": "kv07",
+  "vehicle": "kv_52",
   "boot": "3f2b9c1e-…",
   "recorder": "1.0.0",
   "clock": { "synced": true, "piTime": 1793268000000 }
@@ -93,7 +94,7 @@ Sendes når recorderen starter, og hver gang serveren svarer etter å ha vært u
 
 ## 4. GET /rules
 
-`GET /api/v1/rules?vehicle=kv07`, med `If-None-Match: "12"` hvis recorderen har reglene fra før.
+`GET /api/v1/rules?vehicle=kv_52`, med `If-None-Match: "12"` hvis recorderen har reglene fra før.
 
 **Svar** (med `ETag: "12"`):
 
@@ -103,7 +104,7 @@ Sendes når recorderen starter, og hver gang serveren svarer etter å ha vært u
   "recording": {
     "events": true,
     "eventsMin": "info",
-    "rules": [ { "tags": "kv_1.spare*", "mode": "ignore" } ],
+    "rules": [ { "tags": "pls.spare*", "mode": "ignore" } ],
     "pauses": []
   }
 }
@@ -118,23 +119,23 @@ Sendes når recorderen starter, og hver gang serveren svarer etter å ha vært u
 
 ```json
 {
-  "vehicle": "kv07",
+  "vehicle": "kv_52",
   "boot": "3f2b9c1e-…",
   "seq": 41,
   "clock": { "synced": true, "piTime": 1793268010000 },
   "tags": [
-    { "name": "kv_1.bit03", "dataType": "boolean", "unit": "", "label": "Nødstopp OK", "description": "" }
+    { "name": "pls.bit03", "dataType": "boolean", "unit": "", "label": "Nødstopp OK", "description": "" }
   ],
   "series": {
-    "kv_1.bit03": [[1793268001200, 1], [1793268004410, 0]],
-    "kv_1.speed": [[1793268001000, 12.5], [1793268002000, null, 2]],
-    "kv_1.words_0": [[1793267000000, 7, 0, 1]]
+    "pls.bit03": [[1793268001200, 1], [1793268004410, 0]],
+    "pls.speed": [[1793268001000, 12.5], [1793268002000, null, 2]],
+    "pls.words_0": [[1793267000000, 7, 0, 1]]
   },
   "text": {
-    "kv_1.state": [[1793268003000, "running"]]
+    "pls.state": [[1793268003000, "running"]]
   },
   "events": [
-    { "ts": 1793268002500, "source": "kv_1", "severity": "alarm", "message": "Feil (ZSW1)", "src": 0 }
+    { "ts": 1793268002500, "source": "kv_52", "severity": "alarm", "message": "Feil (ZSW1)", "src": 0 }
   ],
   "gaps": [
     { "from": 1793260000000, "to": 1793261000000, "tags": "*", "reason": "queue-full" }
@@ -174,7 +175,7 @@ Recorderen spør på vegne av HMI-en: en trend, en Timeline eller en tidsstripe.
 samme som `historyRange` i huben.
 
 ```json
-{ "vehicle": "kv07", "tags": ["kv_1.bit03", "kv_1.speed"], "from": 1793180000000, "to": 1793268000000, "points": 1500 }
+{ "vehicle": "kv_52", "tags": ["pls.bit03", "pls.speed"], "from": 1793180000000, "to": 1793268000000, "points": 1500 }
 ```
 
 - Høyst 8 tagger per spørsmål, som i huben.
@@ -183,8 +184,8 @@ samme som `historyRange` i huben.
 
 ```json
 {
-  "series": { "kv_1.bit03": [[1793180000000, 1], [1793190000000, 0]], "kv_1.speed": [] },
-  "unrecorded": ["kv_1.speed"],
+  "series": { "pls.bit03": [[1793180000000, 1], [1793190000000, 0]], "pls.speed": [] },
+  "unrecorded": ["pls.speed"],
   "ms": 84
 }
 ```
@@ -210,11 +211,11 @@ ville lagret.
   "events": true,
   "eventsMin": "info",
   "rules": [
-    { "tags": "kv_1.spare*", "mode": "ignore" },
-    { "tags": "kv_1.speedAct, kv_1.torqueAct", "deadband": "1%", "minInterval": 1, "maxInterval": 60 },
-    { "tags": "kv_1.statusWord", "ignoreBits": "8, 10" },
-    { "tags": "kv_1.ints_1", "mode": "interval", "every": 60 },
-    { "tags": "kv_1.bit0*", "flickerChanges": 6, "flickerSeconds": 2 },
+    { "tags": "pls.spare*", "mode": "ignore" },
+    { "tags": "pls.speedAct, pls.torqueAct", "deadband": "1%", "minInterval": 1, "maxInterval": 60 },
+    { "tags": "pls.statusWord", "ignoreBits": "8, 10" },
+    { "tags": "pls.ints_1", "mode": "interval", "every": 60 },
+    { "tags": "pls.bit0*", "flickerChanges": 6, "flickerSeconds": 2 },
     { "tags": "*" }
   ],
   "pauses": [

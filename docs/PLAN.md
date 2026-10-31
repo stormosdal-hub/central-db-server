@@ -1,7 +1,7 @@
 # Plan: sentral server og database for kjøreverkene
 
 > **Dette er planen dette prosjektet bygges etter.** Den kom fra `hmi-core/docs/SERVER-PLAN.md` i
-> prosjektet HMI-user-interface (commit 5652578) og ligger her som referanse. Hva som er bygd, og hva
+> prosjektet HMI-user-interface (commit 3c8a0a0) og ligger her som referanse. Hva som er bygd, og hva
 > som gjenstår, står i [README.md](../README.md) §Status. [PROTOKOLL.md](PROTOKOLL.md) er
 > grensesnittet mot kjøreverkene, og skal være lik i begge prosjektene.
 >
@@ -36,12 +36,12 @@
   - **Den spør også denne serveren** når en trend i HMI-en vil se lenger tilbake enn huben
     husker.
 - **Taggene:**
-  - **Navn** som `kv_1.bit03`, `kv_1.words_0` og `calc.speed`.
+  - **Navn** som `pls.bit03`, `pls.words_0` og `calc.speed`.
   - **Typer:** `boolean`, `number` og `string`, med enhet og et navn fra PLS-en eller brukeren
     (`label`).
   - **Like navn:** kjøreverkene har samme PLS-program, så de fleste tagnavnene er like på tvers.
     Det gjør det mulig å sammenligne og søke på tvers av kjøreverkene.
-- **Tidene** kommer fra Pi-klokka, i UTC. Pi-ene synkroniserer mot denne serveren ([3.7](#37-klokka)).
+- **Tidene** kommer fra Pi-klokka, i UTC. Pi-ene og serveren synkroniserer mot den samme tidsserveren ([3.7](#37-klokka)).
 
 ## 2. Mål
 
@@ -100,7 +100,7 @@ Et utkast; navnene kan endres.
 
 | Tabell | Innhold |
 |---|---|
-| `vehicle` | `id` (smallint), `code` (`kv07`, unik), navn, nøkkel (bare hash), aktiv, sist sett, recorder-versjon, om klokka er synkronisert, regelsett og tillegg til regelsettet, notater |
+| `vehicle` | `id` (smallint), `code` (`kv_52`, unik), navn, nøkkel (bare hash), aktiv, sist sett, recorder-versjon, om klokka er synkronisert, regelsett og tillegg til regelsettet, notater |
 | `tag` | `id`, `name` (unik), felles for alle kjøreverkene |
 | `vehicle_tag` | Katalogen: hvilke tagger hvert kjøreverk har, med `data_type`, `unit`, `label`, `description`, først og sist sett, og siste verdi. Grunnlaget for «hvilke kjøreverk har disse dataene» |
 | `sample` (hypertable) | `ts` (timestamptz), `vehicle_id`, `tag_id`, `value` (double precision; `null` er et hull), `q`, `src`, `unsynced`. Unik på (`vehicle_id`, `tag_id`, `ts`). Av/på som 0 og 1 |
@@ -169,12 +169,12 @@ kjøreverk, tag og bøtte. Trender over lange tidsrom og filtrene bruker dem.
 
 ### 3.7 Klokka
 
-- **Serveren er tidskilden for kjøreverkene:** `chrony` som NTP-server på nettet.
-- **Serverens egen kilde:**
-  - **GPS:** en USB-mottaker, for eksempel u-blox, med `gpsd` og `chrony`, og en antenne med fri
-    sikt mot himmelen.
-  - **Eller til å begynne med:** en NTP-server som finnes på nettet fra før.
-- **`local stratum 10`** holder alle kjøreverkene på samme tid også når kilden faller ut.
+- **Tidsserveren er NTP-serveren på nettet, `10.0.0.104`.** Serveren synkroniserer mot den med
+  `chrony` eller `systemd-timesyncd`. Kjøreverkene synkroniserer mot den samme, hver for seg.
+- **Serveren er ikke tidsserver** for kjøreverkene, og trenger ingen GPS.
+- **Får et kjøreverk ikke kontakt med tidsserveren når det starter,** sender recorderen punktene
+  10 minutter etter at serveren har svart, merket at klokka ikke var synkronisert. Serveren lagrer
+  merket.
 - **Pi 5 har en RTC.** Sett i batteriet, så tiden overlever et strømbrudd.
 - **Lagrede tider skrives aldri om.** `clock_obs` gjør det mulig å regne ut en rettelse senere.
 
@@ -200,7 +200,7 @@ menyen, innloggingen, tidsvelgeren og velgeren for kjøreverk. Da er en ny side 
    - nye hull og varsler
 2. **Finn data**, den viktigste siden:
    - **Velg hva du leter etter:**
-     - **Tagger:** navn, mønster (`kv_1.bit*`), navnet fra PLS-en, type eller enhet.
+     - **Tagger:** navn, mønster (`pls.bit*`), navnet fra PLS-en, type eller enhet.
      - **Tidsrom.**
      - **En betingelse, om du vil:** *var på*, *over 80*, *endret seg*, *alarm med denne
        teksten*.
@@ -221,7 +221,7 @@ menyen, innloggingen, tidsvelgeren og velgeren for kjøreverk. Da er en ny side 
    - **Rediger regelsettene** i formatet fra [PROTOKOLL.md](PROTOKOLL.md) §7.
    - **Gi kjøreverkene sine regelsett**, og et tillegg per kjøreverk.
    - **Pauser,** for eksempel under vedlikehold.
-   - **Forhåndsvisning:** *denne regelen ville gitt så mange punkter siste døgn for kv07*,
+   - **Forhåndsvisning:** *denne regelen ville gitt så mange punkter siste døgn for kv_52*,
      regnet med regelmotoren på rådataene.
    - **Historikk:** hvem som endret hva.
 6. **Hendelser og hull** på tvers av kjøreverkene, med filtre.
@@ -241,16 +241,14 @@ menyen, innloggingen, tidsvelgeren og velgeren for kjøreverk. Da er en ny side 
 5. **`/history`.**
 6. **Web-siden:** oversikten, *Finn data*, trend og eksport.
 7. **Hendelser, hull og varsler** for kjøreverk som har stilnet.
-8. **Klokka:** `chrony` som tidsserver, GPS senere.
+8. **Klokka:** serveren synkroniserer mot `10.0.0.104`.
 9. **Sikkerhetskopi**, og hvordan serveren flyttes, beskrevet og prøvd.
 
 ## 6. Åpne spørsmål
 
-- **Serverens tidskilde:** GPS, eller en NTP-server som finnes fra før?
 - **Hvem skal logge inn, og fra hvor?** Bare fra det lokale nettet?
 - **Hvor lenge skal rådataene beholdes?**
 - **Andre eksportformater** enn CSV, for eksempel Excel eller Parquet?
-- **Hva heter kjøreverkene?** For eksempel `kv01` til `kv42`.
 
 ## 7. Samarbeidet med hmi-core
 

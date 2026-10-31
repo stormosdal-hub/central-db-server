@@ -12,14 +12,7 @@
   const SILENT = [600, 1800, 3600, 7200, 21600, 43200, 86400, 259200, 604800];
   let root = null, data = null, selected = null, filter = '', timer = null;
 
-  function status(v) {
-    if (!v.active) return ['Slått av', ''];
-    if (!v.key_prefix) return ['Ingen nøkkel', 'warn'];
-    if (v.last_batch_at === null) return v.last_seen ? ['Har hilst, ikke sendt', 'warn'] : ['Aldri hørt fra', 'warn'];
-    if (v.sending) return ['Sender', 'ok'];
-    if (v.silent) return ['Stille', 'bad'];
-    return ['Venter', 'info'];
-  }
+  const status = v => S.vehicleStatus(v);
   const serverUrl = () => `${location.protocol}//${location.host}`;
 
   // ---------------------------------------------------------------- oppsettet på Pi-en i kjøreverket
@@ -36,16 +29,19 @@
     const json = JSON.stringify({ vehicle: code, server: serverUrl(), token: key || '<nøkkelen>' }, null, 2);
     const local = /^(localhost|127\.|\[::1\])/.test(location.hostname);
     return `<ol class="steps">
-      <li>Logg inn på Pi-en i kjøreverket (ssh), og lag oppsettfilen til recorderen. Den skal ligge i <code>/etc</code>, ikke i <code>hmi-core/config</code>:
+      <li>Logg inn på Pi-en i kjøreverket (ssh). Kjøreverkets navn står i <code>/etc/kjoreverk/vehicle</code>, og det må være <code>${esc(code)}</code>, nøyaktig som koden her:
+        ${c.block(`echo ${code} | sudo tee /etc/kjoreverk/vehicle`)}
+        <div class="hint">Adapteren og huben bruker det som kilde i alarmlisten. Recorderen bruker <code>"vehicle"</code> i filen under, og ellers dette.</div></li>
+      <li>Lag oppsettfilen til recorderen. Den skal ligge i <code>/etc</code>, ikke i <code>hmi-core/config</code>:
         ${c.block('sudo nano /etc/hmi-recorder.json')}</li>
       <li>Lim inn dette, lagre (Ctrl+O, Enter) og lukk (Ctrl+X):
         ${c.block(json)}
         <div class="hint">${local ? '<b>Du har åpnet denne siden på serveren selv:</b> bytt <code>localhost</code> med serverens navn eller faste IP-adresse på nettet. ' : ''}<code>server</code> er adressen kjøreverkene når denne serveren på. Bruk serverens faste navn eller IP-adresse hvis den er en annen enn i nettleseren din.${key ? '' : ' <code>&lt;nøkkelen&gt;</code> er nøkkelen fra «Lag ny nøkkel»: den vises bare når den lages.'}</div></li>
       <li>Bare root og brukeren recorderen kjører som, skal kunne lese den:
         ${c.block('sudo chown root:"$(systemctl show -p User --value kjoreverk@recorder.service)" /etc/hmi-recorder.json\nsudo chmod 640 /etc/hmi-recorder.json')}</li>
-      <li>Start recorderen på nytt. Første gang må tjenesten lages; se <code>README_systemd-service.md</code> i HMI-prosjektet, eller README her, §4.
-        ${c.block('sudo systemctl restart kjoreverk@recorder.service')}</li>
-      <li>Sjekk loggen. Den skal si <code>the central server answers</code> og <code>Recording rules version …</code>, og her blir statusen «Sender» innen et halvt minutt:
+      <li>Start tjenestene på nytt, så de leser navnet og oppsettet. Første gang må tjenestene lages; se <code>README_systemd-service.md</code> i HMI-prosjektet, eller README her, §4.
+        ${c.block("sudo systemctl restart 'kjoreverk@*'")}</li>
+      <li>Sjekk loggen. Første linje sier <code>recorder … for ${esc(code)}</code>, så <code>the central server answers</code> og <code>Recording rules version …</code>, og her blir statusen «Sender» innen et halvt minutt:
         ${c.block('journalctl -u kjoreverk@recorder.service -n 30 --no-pager')}</li>
     </ol>`;
   }
@@ -71,16 +67,22 @@
 
   function addForm() {
     const next = (() => {
-      const nums = data.vehicles.map(v => (v.code.match(/^kv(\d+)$/) || [])[1]).filter(Boolean).map(Number);
-      return nums.length ? `kv${String(Math.max(...nums) + 1).padStart(2, '0')}` : 'kv01';
+      const found = data.vehicles.map(v => v.code.match(/^(.*?)(\d+)$/)).filter(Boolean);
+      if (!found.length) return 'kv_01';
+      const count = new Map();
+      for (const m of found) count.set(m[1], (count.get(m[1]) || 0) + 1);
+      const prefix = [...count.entries()].sort((a, b) => b[1] - a[1])[0][0];
+      const mine = found.filter(m => m[1] === prefix);
+      const width = Math.max(...mine.map(m => m[2].length));
+      return prefix + String(Math.max(...mine.map(m => Number(m[2]))) + 1).padStart(width, '0');
     })();
     const m = S.modal(`<h2>Nytt kjøreverk</h2>
       <form class="form">
         <div class="row2">
           <label>Kode (det kjøreverket heter på serveren)<input name="code" required maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9_.\\-]*" placeholder="${next}" value="${next}"></label>
-          <label>Navn<input name="name" maxlength="100" placeholder="Kjøreverk ${esc(next.replace(/^kv0?/, ''))}"></label>
+          <label>Navn<input name="name" maxlength="100" placeholder="Kjøreverk ${esc(String(Number((next.match(/(\d+)$/) || [])[1]) || ''))}"></label>
         </div>
-        <div class="hint">Koden må være den samme som <code>"vehicle"</code> i <code>/etc/hmi-recorder.json</code> på Pi-en, gjerne lik vertsnavnet. Den kan ikke endres senere.</div>
+        <div class="hint">Koden må være nøyaktig lik kjøreverkets navn på Pi-en: <code>/etc/kjoreverk/vehicle</code> (eller <code>"vehicle"</code> i <code>/etc/hmi-recorder.json</code>). Ellers avviser serveren nøkkelen.</div>
         <div class="row2">
           <label>Regelsett<select name="ruleSet">${data.ruleSets.map(r => `<option${r === 'default' ? ' selected' : ''}>${esc(r)}</option>`).join('')}</select></label>
           <label>Varsel når det har vært stille i<select name="silentAfter">${silentOptions(7200)}</select></label>
@@ -156,16 +158,23 @@
     try { v = await api(`/vehicles/${encodeURIComponent(code)}`); } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
     const admin = S.can('admin'), rules = S.can('rules');
     // listen har sending og silent; resten er ferskest i v
-    const [txt, cls] = status(Object.assign({}, data.vehicles.find(x => x.code === code) || {}, v));
+    const [txt, cls, why] = status(Object.assign({}, data.vehicles.find(x => x.code === code) || {}, v));
+    const refused = txt === 'Avvist';
     const c = copyable();
     const ro = admin ? '' : ' disabled';
     box.innerHTML = `<span class="close" title="Lukk">✕</span>
-      <h2>${esc(v.code)} <span class="muted">${esc(v.name)}</span> <span class="badge ${cls}">${txt}</span></h2>
+      <h2>${esc(v.code)} <span class="muted">${esc(v.name)}</span> <span class="badge ${cls}" title="${esc(why)}">${txt}</span></h2>
+      ${refused ? `<div class="note warn"><b>Serveren avviste ${esc(v.code)}</b> ${fmtTime(v.last_refused_at)} fra ${esc(v.last_refused_ip || '?')}:<br><code>${esc(v.last_refused_reason || '')}</code>
+        ${/belongs to/.test(v.last_refused_reason || '') ? `<br>Navnet på Pi-en er ikke likt koden her. Gi Pi-en koden <code>${esc(v.code)}</code> (se «Oppsett på Pi-en» under), eller gi kjøreverket det nye navnet som kode i feltet <b>Kode</b>.` : ''}
+        ${/unknown or has been revoked/.test(v.last_refused_reason || '') ? '<br>Nøkkelen på Pi-en er ikke den serveren har. Lag en ny nøkkel og legg den inn på Pi-en.' : ''}</div>` : ''}
       <div class="sections">
         <div class="section">
           <h3>Innstillinger</h3>
           <form class="form settings">
-            <label>Navn<input name="name" maxlength="100" value="${esc(v.name)}"${ro}></label>
+            <div class="row2">
+              <label>Kode <span class="hint">lik navnet på Pi-en</span><input name="code" maxlength="32" value="${esc(v.code)}"${ro}></label>
+              <label>Navn<input name="name" maxlength="100" value="${esc(v.name)}"${ro}></label>
+            </div>
             <div class="row2">
               <label>Regelsett<select name="ruleSet"${rules ? '' : ' disabled'}>${data.ruleSets.map(r => `<option${r === v.rule_set ? ' selected' : ''}>${esc(r)}</option>`).join('')}</select></label>
               <label>Varsel når det har vært stille i<select name="silentAfter"${ro}>${silentOptions(v.silent_after_s)}</select></label>
@@ -227,14 +236,16 @@
         if (f.notes.value !== v.notes) body.notes = f.notes.value;
         if (Number(f.silentAfter.value) !== v.silent_after_s) body.silentAfter = Number(f.silentAfter.value);
         if (f.active.checked !== v.active) body.active = f.active.checked;
+        if (f.code.value.trim() !== v.code) body.code = f.code.value.trim();
       }
       if (f.ruleSet.value !== v.rule_set) body.ruleSet = f.ruleSet.value;
       if (!Object.keys(body).length) return;
+      if (body.code && !(await S.confirm(`Ny kode for ${v.code}?`, `<b>${esc(v.code)}</b> blir <b>${esc(body.code)}</b>. Dataene, nøkkelen og reglene følger med. Recorderen på Pi-en må sende den nye koden: <code>/etc/kjoreverk/vehicle</code> (eller <code>"vehicle"</code> i <code>/etc/hmi-recorder.json</code>) må være <code>${esc(body.code)}</code>.`, 'Endre koden'))) return;
       if (body.active === false && !(await S.confirm(`Slå av ${v.code}?`, 'Recorderen i kjøreverket får 403 og sender ingenting før det slås på igjen. Den holder dataene i RAM så lenge den har plass.', 'Slå av', true))) return;
       try {
-        await api(`/vehicles/${encodeURIComponent(v.code)}`, { method: 'PATCH', body });
+        const r = await api(`/vehicles/${encodeURIComponent(v.code)}`, { method: 'PATCH', body });
         await load();
-        await showVehicle(v.code);
+        await showVehicle(r.code);
         const s = root.querySelector('.detail .saved');
         if (s) { s.hidden = false; setTimeout(() => { s.hidden = true; }, 2000); }
       } catch (ex) { err.textContent = ex.message; err.hidden = false; }

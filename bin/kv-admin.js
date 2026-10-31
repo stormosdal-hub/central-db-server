@@ -16,6 +16,7 @@
  *   kv-admin vehicle key <code>                   en ny nøkkel; vises én gang. Legg den i /etc/hmi-recorder.json på Pi-en
  *   kv-admin vehicle revoke <code>                nøkkelen slutter å virke
  *   kv-admin vehicle delete <code>                bare et kjøreverk som aldri har lagret data (ellers: disable)
+ *   kv-admin vehicle rename <code> <ny kode>      ny kode, f.eks. kv52 -> kv_52; dataene og nøkkelen følger med
  *   kv-admin vehicle enable|disable <code>
  *   kv-admin vehicle set <code> [--name "…"] [--silent-after <s>] [--notes "…"]
  *   kv-admin vehicle rules <code> --set <name>    hvilket regelsett kjøreverket bruker
@@ -168,6 +169,12 @@ async function vehicle(db, sub, [code, extra]) {
     }
     case 'revoke': await admin.revokeKey(db, code, WHO); console.log(`${code}: the key is revoked`); return;
     case 'delete': await admin.deleteVehicle(db, code, WHO); console.log(`${code} deleted`); return;
+    case 'rename': {
+      if (!code || !extra) throw new Error('kv-admin vehicle rename <code> <new code>');
+      await admin.renameVehicle(db, code, extra, WHO);
+      console.log(`${code} is now ${extra}. Its recorder must send "${extra}": /etc/kjoreverk/vehicle (or "vehicle" in /etc/hmi-recorder.json) on the Pi`);
+      return;
+    }
     case 'enable': await admin.setActive(db, code, true, WHO); console.log(`${code} is enabled`); return;
     case 'disable': await admin.setActive(db, code, false, WHO); console.log(`${code} is disabled: its recorder gets 403 until it is enabled again`); return;
     case 'set': {
@@ -188,7 +195,7 @@ async function vehicle(db, sub, [code, extra]) {
       console.log(`${code}: extra rules set (rules version ${r.version})`);
       return;
     }
-    default: throw new Error('kv-admin vehicle list|add|show|key|revoke|delete|enable|disable|set|rules|extra');
+    default: throw new Error('kv-admin vehicle list|add|show|key|revoke|delete|rename|enable|disable|set|rules|extra');
   }
 }
 

@@ -12,7 +12,7 @@ const vehicleFields = {
   ruleSet: { type: 'string', minLength: 1, maxLength: 40 },
 };
 
-module.exports = async function vehicles(app, { db, config, log, need, who }) {
+module.exports = async function vehicles(app, { db, config, log, need, deny, who }) {
   app.get('/vehicles', async () => ({ vehicles: await admin.vehiclesWithStats(db), ruleSets: (await listRuleSets(db)).map(r => r.name), port: config.port }));
 
   app.get('/vehicles/:code', async (req, reply) => {
@@ -38,20 +38,25 @@ module.exports = async function vehicles(app, { db, config, log, need, who }) {
     return reply.code(201).send(out);
   });
 
-  // endre et kjøreverk: navn, notater, grensen for stille og av/på krever admin; regelsettet krever rules
+  // endre et kjøreverk: kode, navn, notater, grensen for stille og av/på krever admin; regelsettet krever rules
   app.patch('/vehicles/:code', {
-    schema: { body: { type: 'object', additionalProperties: false, minProperties: 1, properties: Object.assign({ active: { type: 'boolean' } }, vehicleFields) } },
+    schema: { body: { type: 'object', additionalProperties: false, minProperties: 1, properties: Object.assign({ active: { type: 'boolean' }, code }, vehicleFields) } },
   }, async (req, reply) => {
     const b = req.body, c = req.params.code;
-    const adminFields = ['name', 'notes', 'silentAfter', 'active'].filter(k => b[k] !== undefined);
-    const denied = await need(adminFields.length ? 'admin' : 'rules')(req, reply);
-    if (denied) return denied;
+    const adminFields = ['name', 'notes', 'silentAfter', 'active', 'code'].filter(k => b[k] !== undefined);
+    if (deny(req, reply, adminFields.length ? 'admin' : 'rules')) return reply;
     if (!(await admin.getVehicle(db, c))) return reply.code(404).send({ error: `no vehicle named ${c}` });
     if (b.name !== undefined || b.notes !== undefined || b.silentAfter !== undefined) {
       await admin.updateVehicle(db, c, { name: b.name, notes: b.notes, silentAfter: b.silentAfter }, who(req));
     }
     if (b.active !== undefined) await admin.setActive(db, c, b.active, who(req));
     if (b.ruleSet !== undefined) await setVehicleRuleSet(db, c, b.ruleSet, who(req));
+    // ny kode sist: det andre gjelder kjøreverket under den gamle
+    if (b.code !== undefined && b.code !== c) {
+      await admin.renameVehicle(db, c, b.code, who(req));
+      log.info(`${who(req)} renamed ${c} to ${b.code}`);
+      return admin.getVehicle(db, b.code);
+    }
     return admin.getVehicle(db, c);
   });
 

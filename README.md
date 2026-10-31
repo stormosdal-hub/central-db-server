@@ -162,11 +162,12 @@ Pi-en i kjøreverket** får recorderen vite hvem den er, hvor serveren er, og n�
 ```
  Databasemaskinen (denne serveren)                 Pi-en i kjøreverket (hmi-core)
  ─────────────────────────────────                 ──────────────────────────────
- 1. Registrer kjøreverket, f.eks. kv52             3. Lag /etc/hmi-recorder.json:
- 2. Lag nøkkelen ──────── kopier nøkkelen ──────►     { "vehicle": "kv52",
+ 1. Registrer kjøreverket, f.eks. kv_52            3. /etc/kjoreverk/vehicle: kv_52
+ 2. Lag nøkkelen ──────── kopier nøkkelen ──────►     /etc/hmi-recorder.json:
+                                                      { "vehicle": "kv_52",
                                                         "server": "http://dbserver:8090",
                                                         "token": "<nøkkelen>" }
-                                                    4. Start recorderen på nytt
+                                                    4. Start tjenestene på nytt
  6. «Sender» på Oversikt og Kjøreverk ◄── data ──  5. Loggen: "the central server answers"
 ```
 
@@ -181,8 +182,10 @@ sudo kv-admin user add storm --role admin
 **På web-siden:** åpne `http://<databasemaskinen>:8090/#/vehicles` (menyen *Kjøreverk*), logg inn,
 og trykk **+ Nytt kjøreverk**:
 
-- **Kode** er det kjøreverket heter på serveren, for eksempel `kv52`. Den må være nøyaktig den samme
-  som `"vehicle"` på Pi-en, og den kan ikke endres senere. Bruk gjerne det samme som vertsnavnet til Pi-en.
+- **Kode** er det kjøreverket heter på serveren, for eksempel `kv_52`. Den må være **nøyaktig lik
+  kjøreverkets navn på Pi-en** (`/etc/kjoreverk/vehicle`, se 4.2), ellers avviser serveren nøkkelen.
+  Koden kan endres senere (feltet *Kode* på kjøreverket, eller `sudo kv-admin vehicle rename`); dataene,
+  nøkkelen og reglene følger med, men Pi-en må da få det samme navnet.
 - **Navn** og **notater** er bare for deg. **Regelsett** bestemmer hva recorderen lagrer ([§5](#5-reglene));
   `default` lagrer alt. **Varsel når det har vært stille** er hvor lenge det kan gå uten data før
   kjøreverket blir rødt på Oversikt.
@@ -196,11 +199,19 @@ virke med en gang.
 **Eller på kommandolinjen** på databasemaskinen:
 
 ```bash
-sudo kv-admin vehicle add kv52 --name "Kjøreverk 52"
-sudo kv-admin vehicle key kv52          # skriver ut nøkkelen, én gang
+sudo kv-admin vehicle add kv_52 --name "Kjøreverk 52"
+sudo kv-admin vehicle key kv_52         # skriver ut nøkkelen, én gang
 ```
 
-### 4.2 På Pi-en i kjøreverket: oppsettfilen til recorderen
+### 4.2 På Pi-en i kjøreverket: navnet og oppsettfilen til recorderen
+
+**Kjøreverkets navn** står på én linje i `/etc/kjoreverk/vehicle` (hmi-core fra commit 3c8a0a0). Adapteren
+og huben bruker det som kilde i alarmlisten, og recorderen som kjøreverkets id på serveren, med mindre
+`"vehicle"` i oppsettfilen under sier noe annet. Det må være koden fra 4.1:
+
+```bash
+echo kv_52 | sudo tee /etc/kjoreverk/vehicle
+```
 
 Recorderen (`hmi-core/recorder.js`) leser oppsettet sitt fra den første av disse filene som finnes:
 
@@ -225,7 +236,7 @@ du bytter ut `hmi-core` med en nyere versjon.
 
    ```json
    {
-     "vehicle": "kv52",
+     "vehicle": "kv_52",
      "server": "http://dbserver:8090",
      "token": "nøkkelen fra databasemaskinen"
    }
@@ -233,7 +244,7 @@ du bytter ut `hmi-core` med en nyere versjon.
 
    | Felt | Hva |
    |---|---|
-   | `vehicle` | Koden fra 4.1, nøyaktig lik. Mangler feltet, brukes vertsnavnet til Pi-en |
+   | `vehicle` | Koden fra 4.1, nøyaktig lik. Kan utelates når `/etc/kjoreverk/vehicle` har den; mangler begge, brukes vertsnavnet til Pi-en. Står det i begge, gjelder dette |
    | `server` | Adressen Pi-en når databasemaskinen på: `http://` + navnet eller IP-adressen + `:8090`. Det du skriver i nettleseren for å åpne web-siden, virker som regel. Sjekk fra Pi-en med `curl http://dbserver:8090/api/health`; den skal svare `{"ok":true,…}` |
    | `token` | Nøkkelen, hele, uten mellomrom |
 
@@ -257,10 +268,10 @@ du bytter ut `hmi-core` med en nyere versjon.
    git checkout -- hmi-core/config/recorder.example.json
    ```
 
-4. **Start recorderen.** Kjører den allerede som tjeneste:
+4. **Start tjenestene på nytt**, så de leser navnet og oppsettet (de leser dem bare når de starter):
 
    ```bash
-   sudo systemctl restart kjoreverk@recorder.service
+   sudo systemctl restart 'kjoreverk@*'
    ```
 
    Første gang må tjenesten lages. Det står i `README_systemd-service.md` i HMI-prosjektet, avsnittet
@@ -277,7 +288,8 @@ du bytter ut `hmi-core` med en nyere versjon.
    journalctl -u kjoreverk@recorder.service -n 30 --no-pager
    ```
 
-   Den skal si `the central server answers (http://dbserver:8090)` og
+   Første linje sier hvilket navn recorderen bruker: `recorder 1.0.0 for kv_52: hub …`. Det må være koden
+   på serveren. Så skal den si `the central server answers (http://dbserver:8090)` og
    `Recording rules version … from the central server in use`. På web-siden går statusen til
    **Sender** innen et halvt minutt, og *Kjøreverk* viser IP-adressen det sender fra og recorder-versjonen.
 
@@ -293,9 +305,9 @@ du bytter ut `hmi-core` med en nyere versjon.
 | `the central server can't be reached (connect ECONNREFUSED …)` | Feil port, eller serveren kjører ikke | `curl http://<server>:8090/api/health` fra Pi-en; `systemctl status kjoreverk-server` på databasemaskinen |
 | `… (getaddrinfo ENOTFOUND dbserver)` | Pi-en kjenner ikke navnet | Bruk IP-adressen i `server`, eller legg navnet i `/etc/hosts` |
 | `… (connect ETIMEDOUT …)` / `no answer in 15 s` | Feil IP-adresse, eller en brannmur | Sjekk adressen; `ping` den |
-| `The central server refused this recorder's key for kv52: the key is unknown or has been revoked` | Nøkkelen er feil, ikke kopiert helt, eller en ny er laget siden | Lag en ny nøkkel (4.1) og legg den inn |
-| `… the key belongs to kv52, not kv07` | `vehicle` på Pi-en er ikke koden nøkkelen ble laget for | Rett `vehicle`, eller lag nøkkelen for riktig kode |
-| `… kv52 is disabled on the server` | Kjøreverket er slått av | Kryss av for *Aktiv* på siden Kjøreverk |
+| `The central server refused this recorder's key for kv_52: the key is unknown or has been revoked` | Nøkkelen er feil, ikke kopiert helt, eller en ny er laget siden | Lag en ny nøkkel (4.1) og legg den inn |
+| `… the key belongs to kv52, not kv_52` | Navnet recorderen sender (`/etc/kjoreverk/vehicle`, eller `"vehicle"` i `/etc/hmi-recorder.json`), er ikke koden nøkkelen ble laget for. Første linje i loggen viser navnet: `recorder 1.0.0 for kv_52` | Gi Pi-en koden (`echo kv52 \| sudo tee /etc/kjoreverk/vehicle`, så `sudo systemctl restart 'kjoreverk@*'`), eller gi kjøreverket navnet som kode på serveren (feltet *Kode* på siden Kjøreverk, eller `sudo kv-admin vehicle rename kv52 kv_52`) |
+| `… kv_52 is disabled on the server` | Kjøreverket er slått av | Kryss av for *Aktiv* på siden Kjøreverk |
 | `the clock isn't synchronized yet (timedatectl): nothing is sent until it is` | Se 4.2, steg 5 | [§8](#8-klokka) |
 
 Etter et avslag på nøkkelen prøver recorderen igjen hvert 5. minutt. Vil du ikke vente, start den på
@@ -307,7 +319,8 @@ nytt.
 journalctl -u kjoreverk-server -n 50 --no-pager | grep refused
 ```
 
-for eksempel `refused POST /hello from 10.0.123.24 (says it is kv52): the key is unknown or has been revoked`.
+for eksempel `refused POST /hello from 10.0.123.24 (says it is kv_52): the key is unknown or has been revoked`.
+Siden *Kjøreverk* viser det samme: statusen blir **Avvist**, med tid, IP-adresse og grunn.
 
 **Statusen på web-siden:**
 
@@ -315,6 +328,7 @@ for eksempel `refused POST /hello from 10.0.123.24 (says it is kv52): the key is
 |---|---|
 | Ingen nøkkel | Kjøreverket er registrert, men har ingen nøkkel. Lag en |
 | Aldri hørt fra | Det har nøkkel, men ingen recorder har koblet til med den. Se recorderens logg |
+| Avvist | Serveren har avvist recorderen etter siste gang den slapp inn: navnet på Pi-en er ikke likt koden, eller nøkkelen er feil. Grunnen står på kjøreverket |
 | Har hilst, ikke sendt | Recorderen kommer gjennom, men har ikke sendt data. De første sekundene er det normalt. Varer det, er klokka på Pi-en ikke synkronisert, eller huben kjører ikke |
 | Sender | Siste batch kom for under 90 sekunder siden |
 | Venter | Det har sendt før, men ikke de siste 90 sekundene. Recorderen sender hvert 10. sekund, så det varer sjelden |
@@ -342,6 +356,7 @@ likevel som den som gjorde det (`cli:storm@…`). Uten sudo får du `EACCES` på
 | `kv-admin vehicle revoke kv52` | nøkkelen trekkes tilbake, for eksempel for en Pi som er borte. Recorderen får 403 og prøver igjen hvert 5. minutt |
 | `kv-admin vehicle disable kv52` / `enable` | et kjøreverk som ikke skal sende en stund |
 | `kv-admin vehicle delete kv52` | sletter et kjøreverk som aldri har lagret data |
+| `kv-admin vehicle rename kv52 kv_52` | ny kode; dataene, nøkkelen og reglene følger med. Pi-en må sende den nye koden |
 | `kv-admin vehicle set kv52 --name … --silent-after 7200 --notes …` | navn, grensen for stille-varselet (sekunder), notater |
 | `kv-admin vehicle rules kv52 --set <navn>` | hvilket regelsett det bruker |
 | `kv-admin vehicle extra kv52 <fil.json>` / `--none` | tillegget: regler og pauser som går foran settets |

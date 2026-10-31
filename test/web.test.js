@@ -81,11 +81,13 @@ test('web: innlogging og Kjøreverk-siden', async t => {
     await T.db.query("INSERT INTO rule_set (name, recording) VALUES ('stille', '{\"rules\":[]}')");
     let r = await kari.patch('/vehicles/kv52', { name: 'Nytt navn' });
     assert.equal(r.statusCode, 403);
+    assert.equal((await storm.get('/vehicles/kv52')).json().name, 'Kjøreverk 52', 'en avvist endring lagres ikke');
     r = await kari.patch('/vehicles/kv52', { ruleSet: 'stille' });
     assert.equal(r.statusCode, 200, r.body);
     assert.equal(r.json().rule_set, 'stille');
     r = await ola.patch('/vehicles/kv52', { ruleSet: 'default' });
     assert.equal(r.statusCode, 403);
+    assert.equal((await storm.get('/vehicles/kv52')).json().rule_set, 'stille', 'en avvist endring lagres ikke');
     r = await storm.patch('/vehicles/kv52', { name: 'Kjøreverk 52 B', notes: '', silentAfter: 3600, active: false });
     assert.equal(r.statusCode, 200, r.body);
     assert.deepEqual([r.json().name, r.json().notes, r.json().silent_after_s, r.json().active], ['Kjøreverk 52 B', '', 3600, false]);
@@ -134,6 +136,44 @@ test('web: innlogging og Kjøreverk-siden', async t => {
     r = await storm.del('/vehicles/kv52');   // har sagt hello (økter), men aldri lagret data
     assert.equal(r.statusCode, 200, r.body);
     assert.equal((await storm.get('/vehicles/kv52')).statusCode, 404);
+  });
+
+  await t.test('avvist navn, og ny kode som retter det', async () => {
+    // kv80 med nøkkel; Pi-en sender navnet kv_80
+    let r = await storm.post('/vehicles', { code: 'kv80', makeKey: true });
+    const k80 = r.json().key;
+    r = await T.post('/hello', hello('kv_80'), { key: k80 });
+    assert.equal(r.statusCode, 403);
+    assert.match(r.json().error, /the key belongs to kv80, not kv_80: the vehicle's name on the Pi \(\/etc\/kjoreverk\/vehicle/);
+    let v = (await storm.get('/vehicles/kv80')).json();
+    assert.match(v.last_refused_reason, /belongs to kv80, not kv_80/);
+    assert.equal(v.last_refused_ip, '127.0.0.1');
+    const list = (await storm.get('/vehicles')).json().vehicles;
+    assert.equal(list.find(x => x.code === 'kv80').refused, true);
+    // en ukjent nøkkel, men et navn serveren kjenner: noteres på det kjøreverket
+    r = await T.post('/hello', hello('kv80'), { key: 'y'.repeat(40) });
+    assert.equal(r.statusCode, 403);
+    assert.match((await storm.get('/vehicles/kv80')).json().last_refused_reason, /unknown or has been revoked/);
+    // ny kode: kv80 -> kv_80; nøkkelen og alt annet følger med
+    r = await ola.patch('/vehicles/kv80', { code: 'kv_80' });
+    assert.equal(r.statusCode, 403);
+    assert.equal((await storm.get('/vehicles/kv80')).statusCode, 200, 'en avvist ny kode lagres ikke');
+    r = await storm.patch('/vehicles/kv80', { code: 'kv 80' });
+    assert.equal(r.statusCode, 400);
+    r = await storm.patch('/vehicles/kv80', { code: 'kv_80', notes: 'byttet navn' });
+    assert.equal(r.statusCode, 200, r.body);
+    assert.equal(r.json().code, 'kv_80');
+    assert.equal(r.json().notes, 'byttet navn');
+    assert.equal(r.json().last_refused_at, null, 'avvisningen er glemt med den gamle koden');
+    r = await T.post('/hello', hello('kv_80'), { key: k80 });
+    assert.equal(r.statusCode, 200, r.body);
+    assert.equal((await storm.get('/vehicles/kv80')).statusCode, 404);
+    await storm.post('/vehicles', { code: 'kv81' });
+    r = await storm.patch('/vehicles/kv81', { code: 'kv_80' });
+    assert.equal(r.statusCode, 400);
+    assert.match(r.json().error, /exists already/);
+    const a = (await T.db.query("SELECT details FROM audit_log WHERE action = 'vehicle.rename'")).rows;
+    assert.deepEqual(a.map(x => x.details), [{ from: 'kv80', to: 'kv_80' }]);
   });
 
   await t.test('vern: Origin, JSON, utlogging, audit', async () => {

@@ -43,11 +43,16 @@ module.exports = async function web(app, { db, config, log }) {
     }
   });
 
-  // preHandler: innlogget med minst denne rollen. Kan også kalles direkte: returnerer reply når den har svart.
-  const need = role => async (req, reply) => {
-    if (!req.user) { reply.code(401).send({ error: 'log in first', login: true }); return reply; }
-    if (!can(req.user, role)) { reply.code(403).send({ error: `this needs the role ${role}; ${req.user.name} has the role ${req.user.role}` }); return reply; }
+  // deny(req, reply, role): true når forespørselen ikke har rollen, og svaret (401/403) er sendt. Synkron og
+  // med true/false med vilje: reply har en then-metode, så en async-funksjon som returnerer reply, gir
+  // undefined når den awaites, og da ville en avvist forespørsel gått videre.
+  const deny = (req, reply, role) => {
+    if (!req.user) { reply.code(401).send({ error: 'log in first', login: true }); return true; }
+    if (!can(req.user, role)) { reply.code(403).send({ error: `this needs the role ${role}; ${req.user.name} has the role ${req.user.role}` }); return true; }
+    return false;
   };
+  // preHandler: innlogget med minst denne rollen
+  const need = role => async (req, reply) => { if (deny(req, reply, role)) return reply; };
   const who = req => `web:${req.user.name}`;
 
   // ---------------------------------------------------------------- innloggingen
@@ -81,5 +86,5 @@ module.exports = async function web(app, { db, config, log }) {
   });
 
   // ---------------------------------------------------------------- sidene
-  for (const page of PAGES) await app.register(require(`./web/${page}`), { db, config, log, need, who });
+  for (const page of PAGES) await app.register(require(`./web/${page}`), { db, config, log, need, deny, who });
 };
