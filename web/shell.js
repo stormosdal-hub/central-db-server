@@ -8,6 +8,8 @@
  *   canLeave()  false når den har endringer som ikke er lagret: da spørres det før den forlates
  *   onUser()    kalles i stedet for å montere siden på nytt når noen logger inn eller ut, så den beholder det
  *               som ikke er lagret
+ * #pageHead i toppfeltet, etter delen siden hører til, er sidens egen plass (Kjøreverk-database har listen
+ * over visningene der). Den tømmes hver gang en ny side vises.
  */
 (function () {
   'use strict';
@@ -175,6 +177,7 @@
     shownHash = location.hash;
     if (current && current.unmount) current.unmount();
     main.innerHTML = '';
+    document.getElementById('pageHead').innerHTML = '';
     const section = name === 'home' ? 'home' : (pages[name] && pages[name].section) || 'adv';
     document.body.dataset.section = section;
     const crumb = document.getElementById('crumb');

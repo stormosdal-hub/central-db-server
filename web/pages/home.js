@@ -45,7 +45,7 @@
         const box = main.querySelector('.views');
         box.classList.remove('muted');
         box.innerHTML = r.dashboards.length
-          ? r.dashboards.map(d => `<a href="#/visning?id=${d.id}"><b>${esc(d.name)}</b> <span class="muted">${d.widgets} widget${d.widgets === 1 ? '' : 'er'}${d.updated_by ? ' · ' + esc(d.updated_by.replace(/^web:/, '')) : ''}</span></a>`).join('')
+          ? r.dashboards.map(d => `<a href="#/visning?id=${d.id}"><b>${esc(d.name)}</b> <span class="muted">${d.tabs && d.tabs.length > 1 ? `${d.tabs.length} faner · ` : ''}${d.widgets} widget${d.widgets === 1 ? '' : 'er'}${d.updated_by ? ' · ' + esc(d.updated_by.replace(/^web:/, '')) : ''}</span></a>`).join('')
           : '<span class="muted">Ingen ennå. Åpne for å lage den første.</span>';
       }).catch(() => { if (alive) main.querySelector('.views').textContent = '–'; });
       S.vehicles(true).then(vs => {

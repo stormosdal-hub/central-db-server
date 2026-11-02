@@ -458,7 +458,9 @@ siden står på (`#/trend?s=…&from=…&to=…`), så et søk eller en trend ka
 | **Kjøreverk** | Legge til, endre navn, notater, regelsett og grensen for stille-varselet, slå av og på, lage og trekke tilbake nøkler, og slette et kjøreverk som aldri har lagret data ([§4](#4-legge-til-et-kjøreverk)) |
 
 **Kjøreverk-database** (`#/visning`, `web/dash/`) er bygd som HMI-en i kjøreverkene: widgeter på et
-lerret, med **Edit** for å bygge og **Run** for å bruke. I Edit velger du en widget i listen til venstre,
+lerret, med **Edit** for å bygge og **Run** for å bruke. Visningen velger du i listen øverst til venstre, i
+toppfeltet, og der lager du også en ny. Hver visning har én eller flere **faner**, hver med sitt lerret: en
+*Alarm-visning* kan ha fanene *Drifts-alarmer* og *Nettverk-alarmer*. I Edit velger du en widget i listen til venstre,
 drar den på plass og i hjørnet for størrelsen, og gir den data til høyre: **kjøreverk, og tagger under hvert**.
 En tag kan være et mønster som `pls.bit*`, som tar med alle taggene som passer, også nye. «Samme tagger på
 alle» gir de andre kjøreverkene i widgeten de samme taggene, så de kan sammenlignes, og «Kopier data fra»
@@ -476,17 +478,22 @@ henter dataene fra en annen widget.
 | **Kjøreverk-status** | sender de, data fram til, alarmer siste døgn, recorder-versjon |
 | **Tekst**, **Ramme** | overskrifter og grupper |
 
-- **Tidsrommet er felles** for widgetene i en visning: velg 10 min til 30 d øverst, eller fra og til. Dra
+- **Fanene:** i Edit legger «+ Ny fane» til en, et dobbeltklikk gir den nytt navn, og du drar den for å
+  flytte den. Med ingen widget valgt har du innstillingene for fanen (navn, lerretet, flytt, dupliser,
+  slett) og for hele visningen til høyre. «Flytt til fane» flytter de valgte widgetene til en annen fane.
+  I Run vises fanelinjen når visningen har mer enn én fane. Listen øverst viser fanene under hver visning,
+  så du kan gå rett til en fane i en annen visning.
+- **Tidsrommet er felles** for widgetene i en visning, også når du bytter fane: velg 10 min til 30 d øverst, eller fra og til. Dra
   sidelengs i en tidslinje eller trend for å gå i tid, og rull for å zoome, så følger de andre med. *Live*
   følger nå, og henter nytt hvert 10. sekund (hvert 30. eller 120. ved lange tidsrom).
 - **Markøren:** klikk på et tidspunkt i en tidslinje eller trend, eller på en rad i en liste. Verdi, Tabell
   og Søyler viser da verdiene ved markøren, og listene viser raden der.
 - **Visningene lagres på serveren** (tabellen `dashboard`), så de er like i alle nettlesere, og adressen
-  (`#/visning?id=3&from=…&to=…&mark=…`) kan deles. Alle kan se dem. For å lagre må du logge inn, med
+  (`#/visning?id=3&tab=…&from=…&to=…&mark=…`) kan deles. Alle kan se dem. For å lagre må du logge inn, med
   hvilken som helst rolle, og hver lagring står i `audit_log`. Har noen andre lagret samme visning etter at
   du åpnet den, spør siden før den lagrer over.
 - **Tastene i Edit:** Delete sletter, Ctrl+D dupliserer, Ctrl+C og Ctrl+V kopierer (også til en annen
-  visning), piltastene flytter, Shift-klikk velger flere, Ctrl+S lagrer.
+  fane eller visning), piltastene flytter, Shift-klikk velger flere, Ctrl+S lagrer.
 - **Ny widgettype:** kopier en av blokkene i `web/dash/widgets.js`. Dataene kommer fra `/api/web/series`,
   `/events`, `/latest`, `/text` og `/catalog` (`routes/web/dashboards.js`).
 
@@ -544,7 +551,7 @@ Skjemaet står i [db/migrations/001_init.sql](db/migrations/001_init.sql) og fø
 | `sample_1m`, `sample_1h`, `rollup_dirty` | sammendragene per kjøreverk, tag og bøtte (antall, minste, største, sum, første, siste), og køen av tidsrom som skal regnes om |
 | `rule_set`, `rule_history` | regelsettene (JSON) med versjon, og historikken |
 | `app_user`, `audit_log`, `setting` | brukere på web-siden, hvem som gjorde hva, innstillinger |
-| `dashboard` | visningene på Kjøreverk-database: navn, oppsettet som JSON (lerretet og widgetene med dataene sine), versjon, hvem og når ([006_dashboard.sql](db/migrations/006_dashboard.sql)) |
+| `dashboard` | visningene på Kjøreverk-database: navn, oppsettet som JSON (fanene, hver med lerretet og widgetene med dataene sine), versjon, hvem og når ([006_dashboard.sql](db/migrations/006_dashboard.sql)) |
 
 **Med TimescaleDB** (anbefalt): `sample` er en hypertable med én chunk per døgn, komprimert etter 7
 dager (delt etter kjøreverk og tag, sortert etter tid, vanligvis 10 ganger mindre); `sample_text`,

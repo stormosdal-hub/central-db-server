@@ -1,7 +1,7 @@
 'use strict';
 /*
  * Kjøreverk-database (docs/PLAN.md §4.8): visningene, der hver er widgeter på et lerret som i HMI-en.
- *   GET    /dashboards          alle visningene: id, navn, antall widgeter, hvem og når
+ *   GET    /dashboards          alle visningene: id, navn, fanene (id og navn), antall widgeter, hvem og når
  *   GET    /dashboards/:id      én visning med oppsettet (config)
  *   POST   /dashboards          ny visning
  *   PUT    /dashboards/:id      lagre. version er den som ble hentet; har noen andre lagret siden, svares 409
@@ -21,7 +21,7 @@ const { findTags, timeRange } = require('../../lib/catalog');
 
 const MAX_CONFIG = 1000000;   // tegn i oppsettet som JSON: rikelig for flere hundre widgeter
 const name = { type: 'string', minLength: 1, maxLength: 80 };
-const config = { type: 'object', properties: { widgets: { type: 'array', maxItems: 500 } } };
+const config = { type: 'object', properties: { tabs: { type: 'array', maxItems: 100 }, widgets: { type: 'array', maxItems: 500 } } };
 const id = { type: 'object', required: ['id'], properties: { id: { type: 'string', pattern: '^\\d{1,9}$' } } };
 const item = { type: 'object', required: ['vehicle', 'tag'], properties: { vehicle: { type: 'string', maxLength: 32 }, tag: { type: 'string', maxLength: 200 } } };
 const COLUMNS = `id, name, version, created_by, created_at, updated_by, updated_at`;
@@ -35,8 +35,17 @@ function check(body) {
 const taken = (e, n) => (e.code === '23505' ? `there is a view named ${n} already` : null);
 
 module.exports = async function dashboards(app, { db, config: cfg, need, who }) {
+  // oppsettet har fanene i tabs, hver med sine widgets; visninger lagret før fanene har widgets rett i oppsettet
   app.get('/dashboards', async () => {
-    const r = await db.query(`SELECT ${COLUMNS}, coalesce(jsonb_array_length(CASE WHEN jsonb_typeof(config->'widgets') = 'array' THEN config->'widgets' END), 0)::int AS widgets
+    const r = await db.query(`SELECT ${COLUMNS},
+        CASE WHEN jsonb_typeof(config->'tabs') = 'array'
+          THEN (SELECT coalesce(sum(jsonb_array_length(t->'widgets')), 0) FROM jsonb_array_elements(config->'tabs') t WHERE jsonb_typeof(t->'widgets') = 'array')
+          ELSE coalesce(jsonb_array_length(CASE WHEN jsonb_typeof(config->'widgets') = 'array' THEN config->'widgets' END), 0)
+        END::int AS widgets,
+        CASE WHEN jsonb_typeof(config->'tabs') = 'array'
+          THEN (SELECT coalesce(jsonb_agg(jsonb_build_object('id', t->>'id', 'name', t->>'name') ORDER BY i), '[]') FROM jsonb_array_elements(config->'tabs') WITH ORDINALITY AS x(t, i) WHERE jsonb_typeof(t) = 'object')
+          ELSE '[]'
+        END AS tabs
       FROM dashboard ORDER BY lower(name)`);
     return { dashboards: r.rows };
   });

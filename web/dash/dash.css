@@ -6,7 +6,9 @@
 .brand .crumb { color: var(--muted); font-weight: 500; margin-left: 4px; }
 .brand .crumb::before { content: "/"; margin-right: 6px; color: var(--line); }
 .brand .crumb:hover { color: var(--text); }
-body[data-section="home"] #nav, body[data-section="dash"] #nav { visibility: hidden; }
+body[data-section="home"] #nav, body[data-section="dash"] #nav { display: none; }
+body[data-section="home"] .clock, body[data-section="dash"] .clock { margin-left: auto; }
+.clock { white-space: nowrap; }
 nav a { white-space: nowrap; }
 @media (max-width: 1400px) { #serverInfo { display: none; } }
 body[data-section="dash"] { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -39,13 +41,45 @@ body[data-section="dash"] main { flex: 1; min-height: 0; max-width: none; width:
 .dash.run .edit-only { display: none !important; }
 .dash.none .d-right, .dash.none .d-palette, .dash.none .d-inspector { display: none !important; }
 
-.d-bar { flex: none; display: flex; align-items: center; gap: 8px 14px; padding: 6px 12px; background: var(--panel2); border-bottom: 1px solid var(--line); flex-wrap: wrap; min-height: 46px; }
+/* visningene: listen øverst til venstre, i toppfeltet */
+.d-vpick { position: relative; display: inline-flex; align-items: center; margin-left: 4px; }
+.d-vpick::before { content: "/"; margin-right: 6px; color: var(--line); font-weight: 500; }
+.d-vbtn { display: inline-flex; align-items: center; gap: 8px; background: var(--panel2); font-weight: 600; font-size: 14px; padding: 4px 10px; }
+.d-vbtn:hover, .d-vbtn[aria-expanded=true] { border-color: var(--live); }
+.d-vbtn .n { max-width: 340px; overflow: hidden; text-overflow: ellipsis; }
+.d-vbtn .car { color: var(--muted); font-size: 11px; }
+.d-vmenu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 5; width: 380px; max-width: calc(100vw - 24px); max-height: min(72vh, 680px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 32px rgba(0,0,0,.5); padding: 6px; white-space: normal; font-weight: 400; font-size: 14px; }
+.d-vmenu[hidden] { display: none; }
+.d-vmenu .q { margin: 2px 0 6px; padding: 5px 8px; }
+.d-vmenu .q[hidden] { display: none; }
+.d-vrow { border-radius: 6px; }
+.d-vrow.on { background: var(--panel2); }
+.d-vitem { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 6px; padding: 6px 10px; }
+.d-vitem:hover, .d-vitem:focus-visible { background: var(--panel2); outline: none; }
+.d-vrow.on .d-vitem:hover, .d-vrow.on .d-vitem:focus-visible { background: #2e343e; }
+.d-vitem b { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.d-vitem.on b { color: var(--live); }
+.d-vitem small { color: var(--muted); font-size: 12px; }
+.d-vtabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 10px 8px; }
+.d-vtabs button { background: var(--bg); border-radius: 12px; padding: 1px 9px; font-size: 12px; color: var(--muted); }
+.d-vtabs button:hover, .d-vtabs button:focus-visible { color: var(--text); border-color: var(--muted); outline: none; }
+.d-vtabs button.on { color: var(--text); border-color: var(--live); }
+.d-vlist > .muted { padding: 8px 10px; margin: 0; }
+.d-vnew { display: block; width: 100%; text-align: left; margin-top: 6px; background: none; border: 0; border-top: 1px solid var(--line); border-radius: 0; color: var(--edit); padding: 8px 10px; }
+.d-vnew:hover, .d-vnew:focus-visible { background: var(--panel2); outline: none; }
+
+.d-bar { flex: none; display: flex; align-items: center; gap: 8px 14px; padding: 6px 12px; background: var(--panel2); border-bottom: 1px solid var(--line); flex-wrap: wrap; min-height: 46px; position: relative; z-index: 1; }
 .d-bar button { padding: 4px 10px; }
-.d-views { display: flex; gap: 2px; overflow-x: auto; min-width: 0; flex: 1 1 200px; }
-.d-tab { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); padding: 6px 10px 4px !important; white-space: nowrap; }
+/* fanene i visningen: smalere enn navnene blir de ikke, da går tidsknappene ned på en ny linje */
+.d-tabs { display: flex; gap: 2px; overflow-x: auto; flex: 1 0 auto; max-width: 100%; align-self: stretch; align-items: end; margin-bottom: -6px; }
+.d-tab { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); padding: 6px 12px 6px !important; white-space: nowrap; }
 .d-tab:hover { color: var(--text); }
-.d-tab.on { color: var(--text); border-bottom-color: var(--live); }
-.d-tab.d-new { color: var(--edit); }
+.d-tab.on { color: var(--text); border-bottom-color: var(--live); font-weight: 600; }
+.d-tab.d-new { color: var(--edit); font-weight: 400; }
+.d-tab.drop-l { box-shadow: inset 2px 0 0 var(--edit); }
+.d-tab.drop-r { box-shadow: inset -2px 0 0 var(--edit); }
+/* tidsknappene og Edit/Run holder sammen: får de ikke plass ved siden av fanene, går de ned på neste linje sammen */
+.d-ctl { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
 .d-time { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
 .d-time button { background: var(--panel); font-size: 13px; }
 .d-time button.on { border-color: var(--live); color: var(--text); }
@@ -57,8 +91,9 @@ body[data-section="dash"] main { flex: 1; min-height: 0; max-width: none; width:
 .d-reload { margin-left: 4px; }
 .d-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .d-dirty { color: var(--warn); font-size: 13px; white-space: nowrap; }
-.d-flash { font-size: 13px; color: var(--ok); white-space: nowrap; max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
-.d-flash.bad { color: var(--bad); white-space: normal; }
+/* meldingene (Lagret, Kopiert …): en boble under linjen, så de ikke skyver på fanene og knappene */
+.d-flash { position: absolute; top: calc(100% + 8px); right: 12px; z-index: 4; font-size: 13px; color: var(--ok); background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--ok); border-radius: 6px; padding: 6px 12px; box-shadow: 0 6px 20px rgba(0,0,0,.45); max-width: 420px; pointer-events: none; }
+.d-flash.bad { color: var(--bad); border-left-color: var(--bad); }
 .d-mode { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .d-mode button { border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 5px 14px; }
 .d-mode button.on { background: var(--live); color: #2a1d05; font-weight: 600; }
@@ -70,7 +105,8 @@ body[data-section="dash"] main { flex: 1; min-height: 0; max-width: none; width:
 .d-palette button { display: block; width: 100%; text-align: left; background: var(--panel); margin-bottom: 6px; padding: 7px 10px; }
 .d-palette button:hover { border-color: var(--edit); }
 .d-palette button small { display: block; color: var(--muted); font-size: 11.5px; line-height: 1.35; margin-top: 2px; }
-.d-viewport { flex: 1; overflow: auto; position: relative; padding: 16px; min-width: 0; }
+/* z-index 0: widgetene (og håndtakene og hjelpeboblene i dem) legger seg aldri over listen over visningene */
+.d-viewport { flex: 1; overflow: auto; position: relative; z-index: 0; padding: 16px; min-width: 0; }
 .dash.run .d-viewport { padding: 8px; }
 .d-canvas { position: relative; transform-origin: top left; background: var(--bg); }
 .d-canvas.edit { background-color: var(--bg); background-image: radial-gradient(#2c323b 1px, transparent 1px); background-size: 20px 20px; outline: 1px solid var(--line); }
@@ -91,6 +127,8 @@ body[data-section="dash"] main { flex: 1; min-height: 0; max-width: none; width:
 .d-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .d-actions { display: flex; gap: 6px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 12px; margin-top: 4px; }
 .d-actions button { flex: 1; padding: 5px 8px; font-size: 13px; }
+.d-group .d-actions { border-top: 0; padding-top: 0; margin: 0 0 8px; }
+.d-moveto { flex-basis: 100%; font-size: 13px; padding: 5px 7px; background: var(--panel); }
 .d-help { margin-top: 14px; font-size: 12.5px; color: var(--muted); }
 .d-help summary { cursor: pointer; }
 .d-help ul { padding-left: 18px; line-height: 1.6; color: var(--text); }
@@ -238,4 +276,6 @@ body[data-section="dash"] main { flex: 1; min-height: 0; max-width: none; width:
   .home { margin-top: 0; }
   .d-palette, .d-inspector { display: none !important; }
   .d-bar { padding: 6px 8px; }
+  body[data-section="dash"] .brand .crumb { display: none; }
+  .d-vbtn .n { max-width: 52vw; }
 }

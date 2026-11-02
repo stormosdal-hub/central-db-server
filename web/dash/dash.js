@@ -3,14 +3,19 @@
  * HMI-en i kjøreverkene: velg en widget i paletten til venstre, flytt den og endre størrelsen på lerretet, og gi
  * den kjøreverk og tagger i egenskapene til høyre. Edit for å bygge, Run for å bruke.
  *
+ * Visningene velges i listen øverst til venstre, i toppfeltet. En visning har én eller flere faner (Drifts-
+ * alarmer, Nettverk-alarmer …), hver med sitt lerret, og fanene står i linjen under toppfeltet.
+ *
  * Visningene lagres på serveren (routes/web/dashboards.js), så de er like i alle nettlesere. Tidsrommet er
- * felles for widgetene i en visning: flytt eller zoom i én tidslinje eller trend, så følger resten. Et klikk
- * i en tidslinje eller trend setter en markør; verdiene, tabellene og søylene viser da verdiene ved markøren.
+ * felles for widgetene i en visning, også på tvers av fanene: flytt eller zoom i én tidslinje eller trend, så
+ * følger resten. Et klikk i en tidslinje eller trend setter en markør; verdiene, tabellene og søylene viser da
+ * verdiene ved markøren.
  *
  * Oppsettet (config) som lagres:
- *   { canvas: { width, height }, fit: 'width' | 'window' | 'none', span: ms, widgets: [w] }
+ *   { fit: 'width' | 'window' | 'none', span: ms, tabs: [{ id, name, canvas: { width, height }, widgets: [w] }] }
  *   w = { id, type, x, y, w, h, props: {…}, data: [{ vehicle: 'kv_52', tags: [{ tag: 'pls.bit00', color: '' }] }] }
- * En tag kan være et mønster (pls.bit*): da gjelder den alle taggene kjøreverket har som passer.
+ * En tag kan være et mønster (pls.bit*): da gjelder den alle taggene kjøreverket har som passer. Visninger
+ * lagret før fanene kom (canvas og widgets rett i oppsettet) åpnes med én fane, og lagres med fanene.
  *
  * Widgetene (dash/widgets.js) får ctx (se makeCtx nedenfor) og svarer med et håndtak:
  *   { refresh(reason) -> Promise, view(), mark(t), redraw(), destroy() }, alle valgfrie.
@@ -30,20 +35,43 @@
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   const snap = v => Math.round(v / GRID) * GRID;
   const uid = () => 'w' + Math.random().toString(36).slice(2, 9);
+  const tid = () => 't' + Math.random().toString(36).slice(2, 9);
   const copy = v => JSON.parse(JSON.stringify(v));
   const who = s => String(s || '').replace(/^web:/, '');   // audit-navnet web:ola som ola
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  // base, eller base 2, base 3 … når navnet er tatt
+  const freeIn = (names, base) => { const has = n => names.some(x => x.toLowerCase() === n.toLowerCase()); let n = base, i = 2; while (has(n)) n = `${base} ${i++}`; return n; };
+  const TAB_NAME = 60;
 
   let st = null;   // alt mens siden er åpen
 
   // ================================================================ oppsettet
-  const blank = () => ({ canvas: { width: 1600, height: 900 }, fit: 'width', span: 86400000, widgets: [] });
+  const blankTab = name => ({ id: tid(), name: name || 'Fane 1', canvas: { width: 1600, height: 900 }, widgets: [] });
+  const blank = () => ({ fit: 'width', span: 86400000, tabs: [blankTab()] });
   function defaults(def) { const p = {}; for (const f of def.props || []) p[f.key] = copy(f.default === undefined ? '' : f.default); return p; }
   function normalize(cfg) {
-    const c = Object.assign(blank(), cfg && typeof cfg === 'object' ? cfg : {});
-    c.canvas = { width: clamp(Number(c.canvas && c.canvas.width) || 1600, 400, 8000), height: clamp(Number(c.canvas && c.canvas.height) || 900, 300, 8000) };
-    if (!FITS.some(f => f[0] === c.fit)) c.fit = 'width';
-    c.span = clamp(Number(c.span) || 86400000, SPAN_MIN, 400 * 86400000);
-    c.widgets = (Array.isArray(c.widgets) ? c.widgets : []).filter(w => w && typeof w === 'object').map(w => {
+    const src = cfg && typeof cfg === 'object' ? cfg : {};
+    const c = { fit: FITS.some(f => f[0] === src.fit) ? src.fit : 'width', span: clamp(Number(src.span) || 86400000, SPAN_MIN, 400 * 86400000) };
+    // lagret før fanene: lerretet og widgetene rett i oppsettet blir den første fanen
+    const tabs = Array.isArray(src.tabs) ? src.tabs.filter(t => t && typeof t === 'object') : [];
+    if (!tabs.length) tabs.push({ id: 't1', name: 'Fane 1', canvas: src.canvas, widgets: src.widgets });
+    c.tabs = tabs.map((t, i) => ({
+      id: String(t.id || tid()),
+      name: String(t.name || '').trim().slice(0, TAB_NAME) || `Fane ${i + 1}`,
+      canvas: { width: clamp(Number(t.canvas && t.canvas.width) || 1600, 400, 8000), height: clamp(Number(t.canvas && t.canvas.height) || 900, 300, 8000) },
+      widgets: normalizeWidgets(t.widgets),
+    }));
+    // id-ene er unike i hele visningen, så en widget kan flyttes til en annen fane
+    const tabIds = new Set(), seen = new Set();
+    for (const t of c.tabs) {
+      while (tabIds.has(t.id)) t.id = tid();
+      tabIds.add(t.id);
+      for (const w of t.widgets) { while (seen.has(w.id)) w.id = uid(); seen.add(w.id); }
+    }
+    return c;
+  }
+  function normalizeWidgets(list) {
+    return (Array.isArray(list) ? list : []).filter(w => w && typeof w === 'object').map(w => {
       const def = D.widgets[w.type];
       const out = { id: String(w.id || uid()), type: String(w.type || ''), x: Math.max(0, Number(w.x) || 0), y: Math.max(0, Number(w.y) || 0) };
       out.w = Math.max(40, Number(w.w) || (def ? def.size[0] : 200));
@@ -55,9 +83,6 @@
       }));
       return out;
     });
-    const seen = new Set();
-    for (const w of c.widgets) { while (seen.has(w.id)) w.id = uid(); seen.add(w.id); }
-    return c;
   }
 
   // ================================================================ tidsrommet og markøren
@@ -247,7 +272,7 @@
     if (!e) { e = el('div', { class: 'd-err' }); m.root.appendChild(e); }
     e.textContent = text;
   }
-  const findW = id => st.cfg.widgets.find(w => w.id === id);
+  const findW = id => st.tab.widgets.find(w => w.id === id);
   const canvasEl = () => st.root.querySelector('.d-canvas');
 
   function mountWidget(w, before) {
@@ -293,11 +318,11 @@
     for (const id of [...st.mounted.keys()]) unmountWidget(id);
     const c = canvasEl();
     c.innerHTML = '';
-    c.style.width = st.cfg.canvas.width + 'px';
-    c.style.height = st.cfg.canvas.height + 'px';
+    c.style.width = st.tab.canvas.width + 'px';
+    c.style.height = st.tab.canvas.height + 'px';
     c.classList.toggle('edit', st.mode === 'edit');
-    for (const w of st.cfg.widgets) mountWidget(w);
-    if (!st.cfg.widgets.length) {
+    for (const w of st.tab.widgets) mountWidget(w);
+    if (!st.tab.widgets.length) {
       c.appendChild(el('div', { class: 'd-hint' }, st.mode === 'edit'
         ? '<b>Tomt lerret.</b> Velg en widget i listen til venstre. Den kommer her, og så gir du den kjøreverk og tagger til høyre.'
         : '<b>Ingen widgeter ennå.</b> Trykk <b>Edit</b> øverst til høyre for å bygge visningen.'));
@@ -306,7 +331,7 @@
   }
   function fitCanvas() {
     const vp = st.root.querySelector('.d-viewport'), c = canvasEl();
-    const cw = st.cfg.canvas.width, ch = st.cfg.canvas.height;
+    const cw = st.tab.canvas.width, ch = st.tab.canvas.height;
     let s = 1;
     if (st.mode === 'run') {
       const aw = vp.clientWidth - 16, ah = vp.clientHeight - 16;
@@ -327,19 +352,211 @@
     st.root.classList.toggle('run', st.mode === 'run');
     st.root.classList.toggle('edit', st.mode === 'edit');
     st.root.classList.toggle('none', !st.dash);
-    renderViews();
+    renderPicker();
+    renderTabs();
     renderTime();
     renderMode();
     renderPalette();
     if (st.dash) renderCanvas();
     renderInspector();
   }
-  function renderViews() {
-    const box = st.root.querySelector('.d-views');
-    box.innerHTML = st.list.map(d => `<button class="d-tab${st.dash && d.id === st.dash.id ? ' on' : ''}" data-id="${d.id}" title="${esc(d.updated_by ? `Lagret av ${who(d.updated_by)} ${S.fmtTime(d.updated_at)}` : '')}">${esc(st.dash && d.id === st.dash.id ? st.dash.name : d.name)}</button>`).join('')
-      + '<button class="d-tab d-new edit-only" title="Lag en ny visning">+ Ny visning</button>';
-    box.querySelectorAll('.d-tab[data-id]').forEach(b => { b.onclick = () => switchTo(Number(b.dataset.id)); });
-    box.querySelector('.d-new').onclick = newView;
+
+  // ---------------------------------------------------------------- visningene: listen øverst til venstre
+  function setupPicker() {
+    const slot = document.getElementById('pageHead');
+    if (!slot) return;
+    st.picker = el('span', { class: 'd-vpick' }, `<button class="d-vbtn" aria-haspopup="true" aria-expanded="false" title="Velg visning"><span class="n"></span><span class="car" aria-hidden="true">▾</span></button>
+      <div class="d-vmenu" hidden><input type="search" class="q" placeholder="Søk i visningene og fanene"><div class="d-vlist"></div><button class="d-vnew" title="Lag en ny visning">+ Ny visning</button></div>`);
+    slot.appendChild(st.picker);
+    const btn = st.picker.querySelector('.d-vbtn'), menu = st.picker.querySelector('.d-vmenu'), q = menu.querySelector('.q');
+    btn.onclick = () => (menu.hidden ? openMenu() : closeMenu());
+    q.oninput = renderMenu;
+    q.onkeydown = e => { if (e.key === 'Enter') { const b = menu.querySelector('.d-vlist [data-id]'); if (b) b.click(); } };
+    menu.querySelector('.d-vnew').onclick = () => { closeMenu(); newView(); };
+    menu.querySelector('.d-vlist').onclick = e => {
+      const b = e.target.closest('[data-id]');
+      if (!b) return;
+      closeMenu();
+      switchTo(Number(b.dataset.id), b.dataset.tab || null);
+    };
+    // Escape lukker, og pilene går i listen
+    st.picker.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && !menu.hidden) { e.preventDefault(); e.stopPropagation(); closeMenu(); btn.focus(); return; }
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      e.preventDefault();
+      if (menu.hidden) { if (e.key === 'ArrowDown') openMenu(); return; }
+      const items = [q, ...menu.querySelectorAll('.d-vlist button, .d-vnew')].filter(x => !x.hidden);
+      const i = items.indexOf(document.activeElement);
+      items[clamp(i + (e.key === 'ArrowDown' ? 1 : -1), 0, items.length - 1)].focus();
+    });
+    renderPicker();
+  }
+  const onDocDown = e => { if (st && st.picker && !st.picker.contains(e.target)) closeMenu(); };
+  function openMenu() {
+    const menu = st.picker.querySelector('.d-vmenu'), q = menu.querySelector('.q');
+    q.value = '';
+    q.hidden = st.list.length < 8;
+    menu.hidden = false;
+    st.picker.querySelector('.d-vbtn').setAttribute('aria-expanded', 'true');
+    renderMenu();
+    // på en smal skjerm: flytt den inn så den ikke går ut over høyre kant
+    menu.style.left = '0px';
+    const over = menu.getBoundingClientRect().right - (document.documentElement.clientWidth - 8);
+    if (over > 0) menu.style.left = -over + 'px';
+    (q.hidden ? menu.querySelector('.d-vitem.on') || menu.querySelector('button') : q).focus();
+    // noen andre kan ha laget, endret eller slettet visninger siden
+    const mine = st;
+    loadList().then(() => { if (st === mine && !menu.hidden) renderMenu(); }).catch(() => {});
+  }
+  function closeMenu() {
+    if (!st || !st.picker) return;
+    st.picker.querySelector('.d-vmenu').hidden = true;
+    st.picker.querySelector('.d-vbtn').setAttribute('aria-expanded', 'false');
+  }
+  function renderMenu() {
+    const menu = st.picker.querySelector('.d-vmenu'), list = menu.querySelector('.d-vlist');
+    const s = menu.querySelector('.q').value.trim().toLowerCase();
+    const keyOf = b => `${b.dataset.id}|${b.dataset.tab || ''}`;
+    const focused = list.contains(document.activeElement) ? keyOf(document.activeElement) : null;
+    // den som er åpen, med navnet og fanene slik de er her, også før de er lagret
+    const rows = st.list.map(d => (st.dash && d.id === st.dash.id
+      ? Object.assign({}, d, { name: st.dash.name, tabs: st.cfg.tabs, widgets: st.cfg.tabs.reduce((n, t) => n + t.widgets.length, 0), on: true })
+      : d));
+    const hits = rows.filter(d => !s || d.name.toLowerCase().includes(s) || (d.tabs || []).some(t => String(t.name || '').toLowerCase().includes(s)));
+    list.innerHTML = hits.map(d => {
+      const tabs = d.tabs || [];
+      const meta = (tabs.length > 1 ? plural(tabs.length, 'fane', 'faner') + ' · ' : '') + plural(d.widgets, 'widget', 'widgeter');
+      return `<div class="d-vrow${d.on ? ' on' : ''}"><button class="d-vitem${d.on ? ' on' : ''}" data-id="${d.id}" title="${esc(d.updated_by ? `Lagret av ${who(d.updated_by)} ${S.fmtTime(d.updated_at)}` : '')}"><b>${esc(d.name)}</b><small>${meta}</small></button>`
+        + (tabs.length > 1 ? `<div class="d-vtabs">${tabs.map((t, i) => `<button data-id="${d.id}" data-tab="${esc(t.id || '')}" class="${d.on && t.id === st.tab.id ? 'on' : ''}" title="Gå rett til fanen">${esc(t.name || `Fane ${i + 1}`)}</button>`).join('')}</div>` : '')
+        + '</div>';
+    }).join('') || `<p class="muted">${st.list.length ? 'Ingen visninger passer.' : 'Ingen visninger ennå.'}</p>`;
+    if (focused) { const b = [...list.querySelectorAll('[data-id]')].find(x => keyOf(x) === focused); if (b) b.focus(); }
+  }
+  function renderPicker() {
+    if (!st.picker) return;
+    st.picker.querySelector('.d-vbtn .n').textContent = st.dash ? st.dash.name : st.list.length ? 'Velg visning' : 'Ingen visninger';
+    document.title = `${st.dash ? st.dash.name : 'Kjøreverk-database'} · Kjøreverk`;
+    if (!st.picker.querySelector('.d-vmenu').hidden) renderMenu();
+  }
+
+  // ---------------------------------------------------------------- fanene i visningen
+  function renderTabs() {
+    const box = st.root.querySelector('.d-tabs'), edit = st.mode === 'edit';
+    box.innerHTML = '';
+    // én fane i Run: ingen linje, navnet på visningen står øverst
+    if (!st.dash || (st.cfg.tabs.length < 2 && !edit)) return;
+    let dragged = null;
+    st.cfg.tabs.forEach(t => {
+      const b = el('button', { class: 'd-tab' + (t === st.tab ? ' on' : ''), role: 'tab', 'aria-selected': String(t === st.tab) }, esc(t.name));
+      b.onclick = () => switchTab(t.id);
+      if (edit) {
+        b.title = 'Dobbeltklikk for å gi fanen nytt navn, dra den for å flytte den';
+        b.draggable = true;
+        b.ondblclick = () => renameTab(t);
+        b.ondragstart = e => { dragged = t; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.name); };
+        b.ondragend = () => { dragged = null; };
+        // til høyre for fanen når den dras mot høyre, ellers til venstre
+        b.ondragover = e => {
+          if (!dragged || dragged === t) return;
+          e.preventDefault();
+          b.classList.add(st.cfg.tabs.indexOf(dragged) < st.cfg.tabs.indexOf(t) ? 'drop-r' : 'drop-l');
+        };
+        b.ondragleave = () => b.classList.remove('drop-l', 'drop-r');
+        b.ondrop = e => { e.preventDefault(); b.classList.remove('drop-l', 'drop-r'); if (dragged && dragged !== t) moveTab(dragged, st.cfg.tabs.indexOf(t)); };
+      }
+      box.appendChild(b);
+    });
+    if (edit) {
+      const add = el('button', { class: 'd-tab d-new', title: 'Legg til en fane i visningen' }, '+ Ny fane');
+      add.onclick = addTab;
+      box.appendChild(add);
+    }
+  }
+  function switchTab(id) {
+    const t = st.cfg.tabs.find(x => x.id === id);
+    if (!t || t === st.tab) return;
+    st.tab = t;
+    st.selection.clear();
+    store.set('dash.tab.' + st.dash.id, t.id);
+    renderTabs();
+    renderCanvas();
+    renderInspector();
+    renderPicker();
+    params();
+    const vp = st.root.querySelector('.d-viewport');
+    vp.scrollTop = vp.scrollLeft = 0;
+  }
+  function moveTab(t, to) {
+    const tabs = st.cfg.tabs, from = tabs.indexOf(t);
+    if (from < 0 || to < 0 || to >= tabs.length || from === to) return;
+    tabs.splice(from, 1);
+    tabs.splice(to, 0, t);
+    markDirty();
+    renderTabs();
+    renderInspector();
+  }
+  async function addTab() {
+    let i = st.cfg.tabs.length + 1;
+    while (st.cfg.tabs.some(t => t.name.toLowerCase() === `fane ${i}`)) i++;
+    const name = await askName('Ny fane', `Fane ${i}`, 'Lag', TAB_NAME);
+    if (!name || !st || !st.dash) return;
+    const t = blankTab(name);
+    t.canvas.width = st.tab.canvas.width;
+    st.cfg.tabs.push(t);
+    markDirty();
+    switchTab(t.id);
+  }
+  async function renameTab(t) {
+    const name = await askName('Gi fanen nytt navn', t.name, 'OK', TAB_NAME);
+    if (!name || !st || name === t.name) return;
+    t.name = name;
+    markDirty();
+    renderTabs();
+    renderInspector();
+    renderPicker();
+  }
+  function duplicateTab() {
+    const src = st.tab, t = copy(src);
+    t.id = tid();
+    t.name = freeIn(st.cfg.tabs.map(x => x.name), `${src.name} (kopi)`).slice(0, TAB_NAME);
+    for (const w of t.widgets) w.id = uid();
+    st.cfg.tabs.splice(st.cfg.tabs.indexOf(src) + 1, 0, t);
+    markDirty();
+    switchTab(t.id);
+    flash(`Kopien «${t.name}» er laget`);
+  }
+  async function deleteTab() {
+    const t = st.tab, tabs = st.cfg.tabs;
+    if (tabs.length < 2) return;
+    if (t.widgets.length && !(await S.confirm('Slett fanen', `Slette fanen «${esc(t.name)}» med ${plural(t.widgets.length, 'widget', 'widgeter')}? Den er borte for alle når du lagrer visningen.`, 'Slett', true))) return;
+    if (!st || st.tab !== t) return;
+    const i = tabs.indexOf(t);
+    tabs.splice(i, 1);
+    markDirty();
+    st.tab = null;
+    switchTab(tabs[Math.min(i, tabs.length - 1)].id);
+  }
+  // widgetene med ids flyttes til fanen tabId, på samme plass på lerretet
+  function moveToTab(ids, tabId) {
+    const to = st.cfg.tabs.find(t => t.id === tabId);
+    if (!to || to === st.tab) return;
+    const moving = st.tab.widgets.filter(w => ids.has(w.id));
+    st.tab.widgets = st.tab.widgets.filter(w => !ids.has(w.id));
+    for (const w of moving) { if (D.widgets[w.type] && D.widgets[w.type].back) to.widgets.unshift(w); else to.widgets.push(w); }
+    const bottom = Math.max(0, ...to.widgets.map(w => w.y + w.h));
+    if (bottom > to.canvas.height) to.canvas.height = snap(bottom + 40);
+    for (const w of moving) unmountWidget(w.id);
+    st.selection.clear();
+    markDirty();
+    if (!st.tab.widgets.length) renderCanvas();
+    renderInspector();
+    flash(`${plural(moving.length, 'widget', 'widgeter')} flyttet til «${to.name}»`);
+  }
+  function moveSelect(ids) {
+    const s = el('select', { class: 'd-moveto', title: 'Flytt til en annen fane i visningen, på samme plass' },
+      '<option value="">Flytt til fane …</option>' + st.cfg.tabs.filter(t => t !== st.tab).map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join(''));
+    s.onchange = () => moveToTab(new Set(ids), s.value);
+    return s;
   }
   function renderTime() {
     const box = st.root.querySelector('.d-time');
@@ -422,6 +639,7 @@
   function params() {
     if (!st.dash) return;
     const p = { id: st.dash.id };
+    if (st.cfg.tabs.length > 1) p.tab = st.tab.id;
     if (st.range.live) { if (st.range.span !== st.cfg.span) p.span = st.range.span; } else { p.from = Math.round(st.range.from); p.to = Math.round(st.range.to); }
     if (st.mark !== null) p.mark = st.mark;
     S.setParams(p);
@@ -438,10 +656,10 @@
     if (!st.dash) return;
     const def = D.widgets[type], vp = st.root.querySelector('.d-viewport');
     let x = snap(vp.scrollLeft / st.scale + 20), y = snap(vp.scrollTop / st.scale + 20);
-    while (st.cfg.widgets.some(o => o.x === x && o.y === y)) { x += 2 * GRID; y += 2 * GRID; }
-    const w = { id: uid(), type, x: Math.max(0, Math.min(x, st.cfg.canvas.width - def.size[0])), y, w: def.size[0], h: def.size[1], props: defaults(def), data: [] };
-    if (def.back) st.cfg.widgets.unshift(w); else st.cfg.widgets.push(w);
-    if (y + w.h > st.cfg.canvas.height) st.cfg.canvas.height = snap(y + w.h + 40);
+    while (st.tab.widgets.some(o => o.x === x && o.y === y)) { x += 2 * GRID; y += 2 * GRID; }
+    const w = { id: uid(), type, x: Math.max(0, Math.min(x, st.tab.canvas.width - def.size[0])), y, w: def.size[0], h: def.size[1], props: defaults(def), data: [] };
+    if (def.back) st.tab.widgets.unshift(w); else st.tab.widgets.push(w);
+    if (y + w.h > st.tab.canvas.height) st.tab.canvas.height = snap(y + w.h + 40);
     markDirty();
     renderCanvas();
     select([w.id]);
@@ -458,6 +676,10 @@
     let drag = null;
     c.addEventListener('pointerdown', e => {
       if (st.mode !== 'edit' || e.button !== 0) return;
+      // preventDefault nedenfor hindrer at fokuset flyttes: ta det fra feltet eller knappen det står i, så tastene
+      // virker på widgetene (og et felt som er endret, lagres i widgeten)
+      const f = document.activeElement;
+      if (f && f !== document.body && !c.contains(f)) f.blur();
       const root = e.target.closest('.d-w');
       const w = root && findW(root.dataset.id);
       if (!w) { if (e.target === c) select([]); return; }
@@ -488,7 +710,7 @@
         return;
       }
       for (const s of drag.start) {
-        s.g.x = clamp(snap(s.x + dx), 0, st.cfg.canvas.width - Math.min(s.g.w, st.cfg.canvas.width));
+        s.g.x = clamp(snap(s.x + dx), 0, st.tab.canvas.width - Math.min(s.g.w, st.tab.canvas.width));
         s.g.y = Math.max(0, snap(s.y + dy));
         const m = st.mounted.get(s.g.id);
         if (m) geometry(m.root, s.g);
@@ -499,8 +721,8 @@
       drag = null;
       if (!d || !d.moved) return;
       // lerretet vokser nedover når noe legges under kanten
-      const bottom = Math.max(...st.cfg.widgets.map(w => w.y + w.h));
-      if (bottom > st.cfg.canvas.height) { st.cfg.canvas.height = snap(bottom + 40); canvasEl().style.height = st.cfg.canvas.height + 'px'; }
+      const bottom = Math.max(...st.tab.widgets.map(w => w.y + w.h));
+      if (bottom > st.tab.canvas.height) { st.tab.canvas.height = snap(bottom + 40); canvasEl().style.height = st.tab.canvas.height + 'px'; }
       if (d.resize) { const m = st.mounted.get(d.w.id); if (m && m.handle.redraw) m.handle.redraw(); }
       markDirty();
       renderInspector();
@@ -511,11 +733,11 @@
   }
   function deleteSelection() {
     if (!st.selection.size) return;
-    st.cfg.widgets = st.cfg.widgets.filter(w => !st.selection.has(w.id));
+    st.tab.widgets = st.tab.widgets.filter(w => !st.selection.has(w.id));
     for (const id of st.selection) unmountWidget(id);
     st.selection.clear();
     markDirty();
-    if (!st.cfg.widgets.length) renderCanvas();
+    if (!st.tab.widgets.length) renderCanvas();
     renderInspector();
   }
   function pasteWidgets(list, offset) {
@@ -523,9 +745,9 @@
     for (const src of list) {
       const w = copy(src);
       w.id = uid();
-      w.x = Math.min(w.x + offset, st.cfg.canvas.width - w.w);
+      w.x = Math.min(w.x + offset, st.tab.canvas.width - w.w);
       w.y += offset;
-      st.cfg.widgets.push(w);
+      st.tab.widgets.push(w);
       ids.push(w.id);
     }
     markDirty();
@@ -535,7 +757,7 @@
   function onKey(e) {
     if (!st || !st.dash) return;
     const t = e.target, typing = t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
-    if (document.querySelector('.modal-back')) return;
+    if (document.querySelector('.modal-back') || (st.picker && st.picker.contains(t))) return;
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); if (st.dirty) save(); return; }
     if (!typing && st.mode === 'run' && e.key === 'Escape' && st.mark !== null) { setMark(null); return; }
@@ -569,6 +791,7 @@
       const a = el('div', { class: 'd-actions' }, '<button class="dup">Dupliser</button><button class="danger del">Slett</button>');
       a.querySelector('.dup').onclick = () => pasteWidgets(sel, 2 * GRID);
       a.querySelector('.del').onclick = deleteSelection;
+      if (st.cfg.tabs.length > 1) a.appendChild(moveSelect(sel.map(w => w.id)));
       box.appendChild(a);
     } else widgetSettings(box, sel[0]);
   }
@@ -636,8 +859,8 @@
     box.appendChild(geo);
     const a = el('div', { class: 'd-actions' }, '<button class="front" title="Legg den over de andre">Fremst</button><button class="back" title="Legg den under de andre">Bakerst</button><button class="dup" title="Ctrl+D">Dupliser</button><button class="danger del" title="Delete">Slett</button>');
     const order = toFront => {
-      st.cfg.widgets = st.cfg.widgets.filter(x => x !== w);
-      if (toFront) st.cfg.widgets.push(w); else st.cfg.widgets.unshift(w);
+      st.tab.widgets = st.tab.widgets.filter(x => x !== w);
+      if (toFront) st.tab.widgets.push(w); else st.tab.widgets.unshift(w);
       markDirty();
       renderCanvas();
     };
@@ -645,6 +868,7 @@
     a.querySelector('.back').onclick = () => order(false);
     a.querySelector('.dup').onclick = () => pasteWidgets([w], 2 * GRID);
     a.querySelector('.del').onclick = deleteSelection;
+    if (st.cfg.tabs.length > 1) a.appendChild(moveSelect([w.id]));
     box.appendChild(a);
   }
 
@@ -697,11 +921,13 @@
       b.onclick = () => { for (const d of w.data.slice(1)) d.tags = copy(w.data[0].tags).map(t => Object.assign(t, { color: '' })); changed(); };
       tools.appendChild(b);
     }
-    const others = st.cfg.widgets.filter(o => o !== w && o.data && o.data.length && D.widgets[o.type] && D.widgets[o.type].data);
+    // fra alle fanene, med navnet på fanen når det er flere
+    const others = [];
+    for (const t of st.cfg.tabs) for (const o of t.widgets) if (o !== w && o.data && o.data.length && D.widgets[o.type] && D.widgets[o.type].data) others.push([o, t]);
     if (others.length) {
-      const s = el('select', { class: 'd-copyfrom', title: 'Ta dataene fra en annen widget i visningen' }, '<option value="">Kopier data fra …</option>' + others.map(o => `<option value="${esc(o.id)}">${esc((D.widgets[o.type].name) + (o.props.title ? ': ' + o.props.title : ''))} (${o.data.map(d => d.vehicle).join(', ')})</option>`).join(''));
+      const s = el('select', { class: 'd-copyfrom', title: 'Ta dataene fra en annen widget i visningen' }, '<option value="">Kopier data fra …</option>' + others.map(([o, t]) => `<option value="${esc(o.id)}">${esc((D.widgets[o.type].name) + (o.props.title ? ': ' + o.props.title : ''))}${st.cfg.tabs.length > 1 ? ' · ' + esc(t.name) : ''} (${esc(o.data.map(d => d.vehicle).join(', '))})</option>`).join(''));
       s.onchange = () => {
-        const o = findW(s.value);
+        const hit = others.find(([o]) => o.id === s.value), o = hit && hit[0];
         if (!o) return;
         w.data = copy(o.data);
         if (spec.max) w.data = w.data.slice(0, spec.max);
@@ -800,37 +1026,58 @@
 
   // ---------------------------------------------------------------- selve visningen
   function viewSettings(box) {
-    const c = st.cfg;
-    box.appendChild(el('h3', {}, 'Visningen'));
-    box.appendChild(el('p', { class: 'muted d-lead' }, 'Klikk på en widget for å endre den. Ingen valgt: her er innstillingene for hele visningen.'));
-    const g = el('div', { class: 'd-group' });
+    const c = st.cfg, t = st.tab, i = c.tabs.indexOf(t);
+    box.appendChild(el('h3', {}, 'Fanen og visningen'));
+    box.appendChild(el('p', { class: 'muted d-lead' }, 'Klikk på en widget for å endre den. Ingen valgt: her er innstillingene for fanen du står i, og for hele visningen.'));
+
+    const tg = el('div', { class: 'd-group' }, '<h4>Fanen</h4>');
+    tg.appendChild(field({ key: 'tab', label: 'Navn', type: 'text' }, t.name, v => {
+      v = String(v).trim().slice(0, TAB_NAME);
+      if (!v) return;
+      t.name = v;
+      markDirty();
+      renderTabs();
+      renderPicker();
+    }));
+    const size = el('div', { class: 'd-field' }, `<label>Lerretet (bredde × høyde)</label><div class="d-grid2"><input type="number" class="cw" value="${t.canvas.width}" step="10" min="400"><input type="number" class="ch" value="${t.canvas.height}" step="10" min="300"></div><div class="hint">Lerretet vokser nedover av seg selv når du legger noe under kanten</div>`);
+    size.querySelector('.cw').onchange = e => { t.canvas.width = clamp(Number(e.target.value) || 1600, 400, 8000); markDirty(); renderCanvas(); };
+    size.querySelector('.ch').onchange = e => { t.canvas.height = clamp(Number(e.target.value) || 900, 300, 8000); markDirty(); renderCanvas(); };
+    tg.appendChild(size);
+    const ta = el('div', { class: 'd-actions' }, `<button class="left" title="Flytt fanen til venstre"${i === 0 ? ' disabled' : ''}>◀ Flytt</button><button class="right" title="Flytt fanen til høyre"${i === c.tabs.length - 1 ? ' disabled' : ''}>Flytt ▶</button>
+      <button class="dup" title="Lag en kopi av fanen med widgetene">Dupliser</button><button class="danger del"${c.tabs.length < 2 ? ' disabled title="En visning har minst én fane"' : ''}>Slett</button>`);
+    ta.querySelector('.left').onclick = () => moveTab(t, i - 1);
+    ta.querySelector('.right').onclick = () => moveTab(t, i + 1);
+    ta.querySelector('.dup').onclick = duplicateTab;
+    ta.querySelector('.del').onclick = deleteTab;
+    tg.appendChild(ta);
+    box.appendChild(tg);
+
+    const g = el('div', { class: 'd-group' }, '<h4>Hele visningen</h4>');
     const fields = [
-      [{ key: 'name', label: 'Navn', type: 'text' }, st.dash.name, v => { if (String(v).trim()) { st.dash.name = String(v).trim(); renderViews(); } }],
+      [{ key: 'name', label: 'Navn', type: 'text' }, st.dash.name, v => { if (String(v).trim()) { st.dash.name = String(v).trim(); renderPicker(); } }],
       [{ key: 'fit', label: 'I Run-modus', type: 'select', options: FITS, hint: 'Hvor stort lerretet vises når du bruker visningen' }, c.fit, v => { c.fit = v; }],
-      [{ key: 'span', label: 'Tidsrom når visningen åpnes', type: 'select', options: SPANS.map(([ms, t]) => [String(ms), 'Siste ' + t]) }, String(c.span), v => { c.span = Number(v); }],
+      [{ key: 'span', label: 'Tidsrom når visningen åpnes', type: 'select', options: SPANS.map(([ms, x]) => [String(ms), 'Siste ' + x]) }, String(c.span), v => { c.span = Number(v); }],
     ];
     for (const [f, v, set] of fields) g.appendChild(field(f, v, x => { set(x); markDirty(); }));
-    const size = el('div', { class: 'd-field' }, `<label>Lerretet (bredde × høyde)</label><div class="d-grid2"><input type="number" class="cw" value="${c.canvas.width}" step="10" min="400"><input type="number" class="ch" value="${c.canvas.height}" step="10" min="300"></div><div class="hint">Lerretet vokser nedover av seg selv når du legger noe under kanten</div>`);
-    size.querySelector('.cw').onchange = e => { c.canvas.width = clamp(Number(e.target.value) || 1600, 400, 8000); markDirty(); renderCanvas(); };
-    size.querySelector('.ch').onchange = e => { c.canvas.height = clamp(Number(e.target.value) || 900, 300, 8000); markDirty(); renderCanvas(); };
-    g.appendChild(size);
-    box.appendChild(g);
     const a = el('div', { class: 'd-actions' }, '<button class="dup">Lag en kopi</button><button class="danger del">Slett visningen</button>');
     a.querySelector('.dup').onclick = duplicateView;
     a.querySelector('.del').onclick = deleteView;
-    box.appendChild(a);
+    g.appendChild(a);
+    box.appendChild(g);
     box.appendChild(el('details', { class: 'd-help' }, `<summary>Tastene</summary><ul>
       <li><b>Dra</b> en widget for å flytte den, hjørnet nede til høyre for å endre størrelsen</li>
       <li><b>Shift-klikk</b> velger flere</li>
       <li><b>Piltastene</b> flytter 10 px (med Shift 1 px)</li>
-      <li><b>Delete</b> sletter, <b>Ctrl+D</b> dupliserer, <b>Ctrl+C / Ctrl+V</b> kopierer, også til en annen visning</li>
+      <li><b>Delete</b> sletter, <b>Ctrl+D</b> dupliserer, <b>Ctrl+C / Ctrl+V</b> kopierer, også til en annen fane eller visning</li>
+      <li><b>Fanene:</b> dobbeltklikk på en fane for å gi den nytt navn, dra den for å flytte den</li>
       <li><b>Ctrl+S</b> lagrer</li></ul>
       <p class="muted">I Run-modus: dra sidelengs i en tidslinje eller trend for å gå i tid, rull for å zoome, og klikk for å sette markøren (Escape tar den bort).</p>`));
   }
 
   // ================================================================ visningene på serveren
   async function loadList() { st.list = (await api('/dashboards')).dashboards; }
-  async function openView(id, mode) {
+  // tab: fanen som skal vises; ellers den i adressen, eller den du sist så på i denne visningen
+  async function openView(id, mode, tab) {
     const mine = st;
     const r = await api('/dashboards/' + id);
     if (st !== mine) return;
@@ -840,25 +1087,28 @@
     st.dirty = false;
     st.cache.clear();
     const p = S.params(), here = Number(p.get('id')) === r.id;
+    const want = tab || (here && p.get('tab')) || store.get('dash.tab.' + r.id);
+    st.tab = st.cfg.tabs.find(t => t.id === want) || st.cfg.tabs[0];
     const from = Number(p.get('from')), to = Number(p.get('to')), span = Number(p.get('span')), mark = Number(p.get('mark'));
     st.now = Date.now();
     if (here && from && to > from) st.range = { live: false, from, to };
     else if (here && span >= SPAN_MIN) st.range = { live: true, span };
     else st.range = { live: true, span: st.cfg.span };
     st.mark = here && mark ? mark : null;
-    st.mode = mode || (st.cfg.widgets.length ? store.get('dash.mode') || 'run' : 'edit');
+    st.mode = mode || (st.cfg.tabs.some(t => t.widgets.length) ? store.get('dash.mode') || 'run' : 'edit');
     store.set('dash.last', String(r.id));
     renderAll();
     params();
   }
-  async function switchTo(id) {
-    if (st.dash && id === st.dash.id) return;
+  async function switchTo(id, tab) {
+    if (st.dash && id === st.dash.id) { if (tab) switchTab(tab); return; }
     if (st.dirty && !(await S.confirm('Endringer som ikke er lagret', `Du har endret «${esc(st.dash.name)}» uten å lagre. Gå til en annen visning og glem endringene?`, 'Glem endringene', true))) return;
-    try { await openView(id); } catch (e) { flash(e.message, true); }
+    try { await openView(id, null, tab); } catch (e) { flash(e.message, true); }
   }
   function renderEmpty() {
     st.dash = null;
     st.cfg = blank();
+    st.tab = st.cfg.tabs[0];
     renderAll();
     const c = canvasEl();
     c.style.transform = '';
@@ -869,10 +1119,10 @@
       <button class="primary">Lag den første visningen</button></div>`;
     c.querySelector('button').onclick = newView;
   }
-  function askName(title, value, okText) {
+  function askName(title, value, okText, max) {
     return new Promise(resolve => {
       let out = null;
-      const m = S.modal(`<h2>${esc(title)}</h2><form class="form"><label>Navn<input name="name" maxlength="80" required value="${esc(value)}"></label>
+      const m = S.modal(`<h2>${esc(title)}</h2><form class="form"><label>Navn<input name="name" maxlength="${max || 80}" required value="${esc(value)}"></label>
         <div class="actions"><button type="button" class="cancel">Avbryt</button><button type="submit" class="primary">${esc(okText)}</button></div></form>`, () => resolve(out));
       const f = m.box.querySelector('form');
       m.box.querySelector('.cancel').onclick = () => m.close();
@@ -880,7 +1130,7 @@
       setTimeout(() => f.name.select(), 0);
     });
   }
-  const freeName = base => { let n = base, i = 2; while (st.list.some(d => d.name.toLowerCase() === n.toLowerCase())) n = `${base} ${i++}`; return n; };
+  const freeName = base => freeIn(st.list.map(d => d.name), base);
   async function create(name, config) {
     const r = await api('/dashboards', { method: 'POST', body: { name, config } });
     await loadList();
@@ -925,8 +1175,8 @@
       st.dash.version = r.version;
       st.dirty = false;
       const row = st.list.find(d => d.id === st.dash.id);
-      if (row) Object.assign(row, { name: r.name, updated_by: r.updated_by, updated_at: r.updated_at });
-      renderViews();
+      if (row) Object.assign(row, { name: r.name, updated_by: r.updated_by, updated_at: r.updated_at, tabs: st.cfg.tabs.map(t => ({ id: t.id, name: t.name })), widgets: st.cfg.tabs.reduce((n, t) => n + t.widgets.length, 0) });
+      renderPicker();
       flash('Lagret');
     } catch (e) { if (st) flash(e.status === 401 ? 'Ikke lagret: logg inn først' : `Ikke lagret: ${e.message}`, true); } finally {
       if (st) { st.saving = false; renderDirty(); }
@@ -945,21 +1195,24 @@
     onUser: () => { if (st) renderDirty(); },
     async mount(main) {
       st = {
-        root: null, list: [], dash: null, cfg: blank(), mode: 'run', selection: new Set(), dirty: false, saving: false, mounted: new Map(),
+        root: null, picker: null, list: [], dash: null, cfg: blank(), tab: null, mode: 'run', selection: new Set(), dirty: false, saving: false, mounted: new Map(),
         range: { live: true, span: 86400000 }, now: Date.now(), mark: null, scale: 1, clipboard: null, cache: new Map(),
         vehiclesP: null, vehiclesAt: 0, vehicleMap: null, maxDays: 400, ctx: null, timer: 0,
       };
+      st.tab = st.cfg.tabs[0];
       st.ctx = makeCtx();
       const mine = st;
       st.root = el('div', { class: 'dash run' }, `
         <div class="d-bar">
-          <div class="d-views"></div>
+          <div class="d-tabs" role="tablist" aria-label="Fanene i visningen"></div>
+          <div class="d-ctl">
           <div class="d-time"></div>
           <div class="d-right">
             <span class="d-flash" hidden></span>
             <span class="d-dirty edit-only"></span>
             <button class="d-save primary edit-only" disabled>Lagre</button>
             <div class="d-mode" role="group" aria-label="Modus"><button data-m="edit" title="Bygg visningen: legg til, flytt og endre widgeter">Edit</button><button data-m="run" title="Bruk visningen">Run</button></div>
+          </div>
           </div>
         </div>
         <div class="d-work">
@@ -971,7 +1224,9 @@
       st.root.querySelectorAll('.d-mode button').forEach(b => { b.onclick = () => setMode(b.dataset.m); });
       st.root.querySelector('.d-save').onclick = save;
       setupCanvas();
+      setupPicker();
       document.addEventListener('keydown', onKey);
+      document.addEventListener('pointerdown', onDocDown);
       window.addEventListener('beforeunload', beforeUnload);
       window.addEventListener('resize', onResize);
       // live: flytt tidsrommet fram og hent det som er nytt, så lenge fanen synes
@@ -1000,7 +1255,9 @@
       clearInterval(st.timer);
       clearTimeout(refreshTimer);
       for (const id of [...st.mounted.keys()]) unmountWidget(id);
+      if (st.picker) st.picker.remove();
       document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onDocDown);
       window.removeEventListener('beforeunload', beforeUnload);
       window.removeEventListener('resize', onResize);
       st = null;

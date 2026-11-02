@@ -86,6 +86,24 @@ test('Kjøreverk-database: visningene og dataene', async t => {
       'web:ola dashboard.create Kladd', 'web:ola dashboard.delete Kladd']);
   });
 
+  await t.test('faner: listen har fanene, og teller widgetene i alle', async () => {
+    const w = (id, type) => ({ id, type, x: 0, y: 0, w: 300, h: 200, props: {}, data: [] });
+    const tabs = { fit: 'width', span: 3600000, tabs: [
+      { id: 'ta', name: 'Drifts-alarmer', canvas: { width: 1600, height: 900 }, widgets: [w('w1', 'events'), w('w2', 'value')] },
+      { id: 'tb', name: 'Nettverk-alarmer', canvas: { width: 1600, height: 900 }, widgets: [w('w3', 'status')] },
+      { id: 'tc', name: 'Tom', canvas: { width: 1600, height: 900 } },
+    ] };
+    let r = await ola.post('/dashboards', { name: 'Alarm-visning', config: tabs });
+    assert.equal(r.statusCode, 201, r.body);
+    r = await anon.get('/dashboards');
+    assert.deepEqual(r.json().dashboards.map(d => [d.name, d.widgets, d.tabs]), [
+      ['Alarm-visning', 3, [{ id: 'ta', name: 'Drifts-alarmer' }, { id: 'tb', name: 'Nettverk-alarmer' }, { id: 'tc', name: 'Tom' }]],
+      ['Bitene', 1, []],   // lagret før fanene: widgetene rett i oppsettet
+    ]);
+    r = await ola.post('/dashboards', { name: 'For mange', config: { tabs: Array.from({ length: 101 }, (_, i) => ({ id: `t${i}` })) } });
+    assert.equal(r.statusCode, 400);
+  });
+
   // ---- dataene
   const end = Math.floor(Date.now() / MIN) * MIN - 5 * MIN;
   const at = m => end - 60 * MIN + m * MIN;
