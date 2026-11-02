@@ -54,6 +54,7 @@ Rekkefølgen fra planen (§5), og hvor langt det er kommet:
 | 7 | Hendelser, hull og varsler for stille kjøreverk | **bygd.** Siden *Hendelser*, med varsler, filtre og hull (meldte og brudd mellom økter) |
 | 8 | Klokka | **ordnet:** alle enhetene bruker NTP-serveren 10.0.0.104; `install.sh` setter opp databasemaskinen (§8). Serverens klokke vises på Oversikt |
 | 9 | Sikkerhetskopi og flytting | **bygd og beskrevet** (§9), ikke prøvd på en Pi ennå |
+| – | Kjøreverk-database: egne visninger med widgeter, som i HMI-en | **bygd.** Forsiden velger mellom den og *Avansert* (sidene over); se [§6](#6-api-et-og-web-siden) |
 
 **Avvik fra planen, med vilje:**
 
@@ -440,8 +441,9 @@ Pauser som har vært over i mer enn 7 dager, tas ut av listen ved neste lagring.
   nummer på punktet), 413 for en for stor, 503 med `retryAfter` når for mange lagres samtidig.
 - `GET /api/health` svarer `{ ok, version, time, timescale }` uten nøkkel.
 
-**Web-siden** på `/` er vanlig HTML, CSS og JavaScript uten byggesteg (`web/`). Hver side er et skript i
-`web/pages/` med sin del av `/api/web` i `routes/web/`. Grafene tegnes med uPlot fra en lokal kopi
+**Web-siden** på `/` er vanlig HTML, CSS og JavaScript uten byggesteg (`web/`). Forsiden har to valg:
+**Kjøreverk-database**, der du bygger dine egne visninger (se under), og **Avansert**, med sidene i tabellen
+nedenfor. Hver side er et skript i `web/pages/` med sin del av `/api/web` i `routes/web/`. Grafene tegnes med uPlot fra en lokal kopi
 (`node_modules/uplot`, servert på `/vendor/`), så serveren ikke trenger internett. Adressen viser hva
 siden står på (`#/trend?s=…&from=…&to=…`), så et søk eller en trend kan bokmerkes og deles.
 
@@ -454,6 +456,39 @@ siden står på (`#/trend?s=…&from=…&to=…`), så et søk eller en trend ka
 | **Regler** | Rediger regelsettene og tillegget per kjøreverk, regel for regel eller som JSON, med sjekk mens du skriver. Pauser (lagres med en gang). Forhåndsvisning: hva reglene ville lagret for et kjøreverk de siste timene, regnet med regelmotoren fra recorderen. Historikk med hvem, når og hvorfor, og «hent inn» en eldre versjon |
 | **Hendelser** | Varsler øverst (stille kjøreverk, klokker som er av). Hendelser og alarmer fra alle kjøreverkene med filtre på kjøreverk, tid, alvorlighet, tekst og kilde. Hull: de recorderne har meldt, og brudd mellom to økter der ingenting kom inn |
 | **Kjøreverk** | Legge til, endre navn, notater, regelsett og grensen for stille-varselet, slå av og på, lage og trekke tilbake nøkler, og slette et kjøreverk som aldri har lagret data ([§4](#4-legge-til-et-kjøreverk)) |
+
+**Kjøreverk-database** (`#/visning`, `web/dash/`) er bygd som HMI-en i kjøreverkene: widgeter på et
+lerret, med **Edit** for å bygge og **Run** for å bruke. I Edit velger du en widget i listen til venstre,
+drar den på plass og i hjørnet for størrelsen, og gir den data til høyre: **kjøreverk, og tagger under hvert**.
+En tag kan være et mønster som `pls.bit*`, som tar med alle taggene som passer, også nye. «Samme tagger på
+alle» gir de andre kjøreverkene i widgeten de samme taggene, så de kan sammenlignes, og «Kopier data fra»
+henter dataene fra en annen widget.
+
+| Widget | Viser |
+|---|---|
+| **Hendelser med tidslinje** | tidslinje over og liste under: av/på-signalene og tekstene per kjøreverk, hendelsene fra recorderne som trekanter, og i listen hendelsene og hver endring i taggene, nyeste først |
+| **Tidslinje** | det samme uten listen: ett felt per tag, gruppert per kjøreverk. Av/på som striper, tall som små kurver, tekst som felt |
+| **Hendelsesliste** | hendelser og alarmer (fra alle kjøreverkene når ingen er valgt), med filter på alvorlighet, tekst og kilde, og endringene i taggene |
+| **Trend** | tall som kurver, én skala per enhet; av/på som felt under |
+| **Verdi** | én tag stort, med lampe for av/på og rød over eller under en grense |
+| **Tabell** | kjøreverk mot tagger: verdiene side om side |
+| **Søyler** | én tallverdi per kjøreverk |
+| **Kjøreverk-status** | sender de, data fram til, alarmer siste døgn, recorder-versjon |
+| **Tekst**, **Ramme** | overskrifter og grupper |
+
+- **Tidsrommet er felles** for widgetene i en visning: velg 10 min til 30 d øverst, eller fra og til. Dra
+  sidelengs i en tidslinje eller trend for å gå i tid, og rull for å zoome, så følger de andre med. *Live*
+  følger nå, og henter nytt hvert 10. sekund (hvert 30. eller 120. ved lange tidsrom).
+- **Markøren:** klikk på et tidspunkt i en tidslinje eller trend, eller på en rad i en liste. Verdi, Tabell
+  og Søyler viser da verdiene ved markøren, og listene viser raden der.
+- **Visningene lagres på serveren** (tabellen `dashboard`), så de er like i alle nettlesere, og adressen
+  (`#/visning?id=3&from=…&to=…&mark=…`) kan deles. Alle kan se dem. For å lagre må du logge inn, med
+  hvilken som helst rolle, og hver lagring står i `audit_log`. Har noen andre lagret samme visning etter at
+  du åpnet den, spør siden før den lagrer over.
+- **Tastene i Edit:** Delete sletter, Ctrl+D dupliserer, Ctrl+C og Ctrl+V kopierer (også til en annen
+  visning), piltastene flytter, Shift-klikk velger flere, Ctrl+S lagrer.
+- **Ny widgettype:** kopier en av blokkene i `web/dash/widgets.js`. Dataene kommer fra `/api/web/series`,
+  `/events`, `/latest`, `/text` og `/catalog` (`routes/web/dashboards.js`).
 
 **Finn data, slik den regner:** uten betingelse svarer katalogen (`vehicle_tag`) på «har taggen», og
 antallet kommer fra sammendragene. *Var på*, *over* og *under* regnes på rådataene: verdien som gjaldt ved
@@ -468,7 +503,7 @@ har én rolle, og hver rolle kan alt rollene over kan:
 
 | Rolle | Kan |
 |---|---|
-| `view` | se (og eksportere, når den siden kommer) |
+| `view` | se og eksportere, og lagre visninger på Kjøreverk-database |
 | `rules` | i tillegg velge regelsett for kjøreverkene, og etter hvert endre regler og pauser |
 | `admin` | alt: kjøreverk, nøkler og brukere |
 
@@ -509,6 +544,7 @@ Skjemaet står i [db/migrations/001_init.sql](db/migrations/001_init.sql) og fø
 | `sample_1m`, `sample_1h`, `rollup_dirty` | sammendragene per kjøreverk, tag og bøtte (antall, minste, største, sum, første, siste), og køen av tidsrom som skal regnes om |
 | `rule_set`, `rule_history` | regelsettene (JSON) med versjon, og historikken |
 | `app_user`, `audit_log`, `setting` | brukere på web-siden, hvem som gjorde hva, innstillinger |
+| `dashboard` | visningene på Kjøreverk-database: navn, oppsettet som JSON (lerretet og widgetene med dataene sine), versjon, hvem og når ([006_dashboard.sql](db/migrations/006_dashboard.sql)) |
 
 **Med TimescaleDB** (anbefalt): `sample` er en hypertable med én chunk per døgn, komprimert etter 7
 dager (delt etter kjøreverk og tag, sortert etter tid, vanligvis 10 ganger mindre); `sample_text`,
@@ -680,9 +716,10 @@ lib/
   log.js, errors.js, audit.js
 routes/v1.js              /api/v1: hello, rules, ingest, history
 routes/web.js             /api/web: innloggingen, og én modul per side i routes/web/
-routes/web/               overview, vehicles, find, series (trend), export, events, rules
+routes/web/               overview, vehicles, find, series (trend), export, events, rules, dashboards (visningene)
 web/                      web-siden: index.html, shell.js (meny, innlogging), components.js (velgerne), style.css,
-                          pages/: overview, find, trend, export, rules, events, vehicles
+                          pages/: home (forsiden), overview, find, trend, export, rules, events, vehicles
+web/dash/                 Kjøreverk-database: dash.js (lerretet, Edit/Run, lagring), widgets.js, charts.js, dash.css
 db/migrations/            skjemaet, nummerert
 deploy/                   install.sh, systemd-enhetene, backup.sh, postgresql-oppsettet
 docs/                     PLAN.md, PROTOKOLL.md, examples/rules-example.json

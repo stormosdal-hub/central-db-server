@@ -35,7 +35,8 @@ NODE_MAJOR=$(node -v | sed 's/v\([0-9]*\).*/\1/')
 # ---------------------------------------------------------------- 1. PostgreSQL og TimescaleDB
 say "PostgreSQL"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
+# en ny kjøring (en oppdatering) skal ikke stoppe fordi pakkespeilene ikke svarer: pakkene er der fra før
+apt-get update -qq || echo "WARNING: apt-get update failed (no answer from the package mirrors?); going on with the package lists on this machine"
 apt-get install -y -qq postgresql postgresql-client gnupg curl lsb-release >/dev/null
 PG_MAJOR=$(pg_lsclusters -h | awk '{print $1; exit}')
 [ -n "$PG_MAJOR" ] || die "no PostgreSQL cluster found after installing postgresql"

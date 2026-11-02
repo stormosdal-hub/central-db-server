@@ -13,7 +13,7 @@ const { audit } = require('../lib/audit');
 const { COOKIE, can, readCookie, cookieHeader, createSession, sessionUser, destroySession, createLimiter } = require('../lib/session');
 
 const OPEN = new Set(['/api/web/me', '/api/web/login', '/api/web/logout']);   // også uten innlogging når web.loginToView er på
-const PAGES = ['overview', 'vehicles', 'find', 'series', 'export', 'events', 'rules'];
+const PAGES = ['overview', 'vehicles', 'find', 'series', 'export', 'events', 'rules', 'dashboards'];
 
 module.exports = async function web(app, { db, config, log }) {
   const days = config.web.sessionDays || 14;

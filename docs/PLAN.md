@@ -226,6 +226,13 @@ menyen, innloggingen, tidsvelgeren og velgeren for kjøreverk. Da er en ny side 
    - **Historikk:** hvem som endret hva.
 6. **Hendelser og hull** på tvers av kjøreverkene, med filtre.
 7. **Kjøreverk:** registrer et kjøreverk, lag eller trekk tilbake nøkkelen, og se øktene.
+8. **Kjøreverk-database:** egne visninger, valgt på forsiden ved siden av *Avansert* (sidene over).
+   - **Som HMI-en:** widgeter på et lerret, med Edit og Run.
+   - **Dataene per widget:** kjøreverk, og tagger under hvert, så de kan sammenlignes.
+   - **Widgetene:** hendelser med tidslinje, tidslinje, hendelsesliste, trend, verdi, tabell, søyler,
+     status for kjøreverkene, tekst og ramme.
+   - **Felles tidsrom og markør** for widgetene i en visning.
+   - **Lagres på serveren**, så de er like for alle.
 
 ## 5. Det som skal bygges, i rekkefølge
 

@@ -2,7 +2,12 @@
  * shell.js - det felles skallet for web-siden: menyen, rutingen (#/side), innloggingen og hjelpefunksjoner
  * sidene deler. Hver side er et skript i pages/ som registrerer seg med
  * Shell.page('navn', { title, mount(el), unmount() }). Siden monteres på nytt når noen logger inn eller ut.
- * Tidsvelgeren og velgeren for kjøreverk kommer her når sidene som trenger dem, lages (docs/PLAN.md §4).
+ *
+ * Web-siden har to deler, valgt på forsiden (#/): Kjøreverk-database (section: 'dash', visningene med widgeter)
+ * og Avansert (resten, uten section). En side kan også ha:
+ *   canLeave()  false når den har endringer som ikke er lagret: da spørres det før den forlates
+ *   onUser()    kalles i stedet for å montere siden på nytt når noen logger inn eller ut, så den beholder det
+ *               som ikke er lagret
  */
 (function () {
   'use strict';
@@ -51,7 +56,7 @@
     if (r.status === 401 && j.login && !o.noLogin) {
       if (await login()) return api(path, Object.assign({}, o, { noLogin: true }));
     }
-    if (!r.ok) { const e = new Error(j.error || `${r.status}`); e.status = r.status; throw e; }
+    if (!r.ok) { const e = new Error(j.error || `${r.status}`); e.status = r.status; e.body = j; throw e; }
     return j;
   }
 
@@ -157,12 +162,24 @@
   }
 
   // ---------------------------------------------------------------- rutingen
+  const SECTIONS = { dash: ['Kjøreverk-database', '#/visning'], adv: ['Avansert', '#/overview'] };
+  let shownHash = location.hash;
   function route() {
     if (!started) return;
-    const name = (location.hash.replace(/^#\/?/, '') || 'overview').split(/[/?]/)[0];
-    if (current && current.name === name) return;
+    const name = pageName();
+    if (current && current.name === name) { shownHash = location.hash; return; }
+    if (current && current.canLeave && !current.canLeave() && !window.confirm('Du har endringer som ikke er lagret. Gå fra siden likevel?')) {
+      history.replaceState(null, '', shownHash);
+      return;
+    }
+    shownHash = location.hash;
     if (current && current.unmount) current.unmount();
     main.innerHTML = '';
+    const section = name === 'home' ? 'home' : (pages[name] && pages[name].section) || 'adv';
+    document.body.dataset.section = section;
+    const crumb = document.getElementById('crumb');
+    crumb.hidden = !SECTIONS[section];
+    if (SECTIONS[section]) { crumb.textContent = SECTIONS[section][0]; crumb.href = SECTIONS[section][1]; }
     document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('active', a.dataset.page === name));
     if (me.loginToView && !me.user) {
       current = { name: '__login' };
@@ -178,11 +195,17 @@
       current = { name };
       return;
     }
-    current = { name, unmount: p.unmount };
+    current = { name, unmount: p.unmount, canLeave: p.canLeave, onUser: p.onUser };
     document.title = `${p.title} · Kjøreverk`;
     p.mount(main);
   }
-  function remount() { if (current && current.unmount) current.unmount(); current = null; route(); }
+  const pageName = () => (location.hash.replace(/^#\/?/, '') || 'home').split(/[/?]/)[0];
+  function remount() {
+    if (current && current.onUser) { current.onUser(); return; }
+    if (current && current.unmount) current.unmount();
+    current = null;
+    route();
+  }
   window.addEventListener('hashchange', route);
 
   setInterval(() => { document.getElementById('clock').textContent = fmtTime(Date.now()); }, 1000);
@@ -196,9 +219,9 @@
     go(page, params) { location.hash = `#/${page}${params && String(new URLSearchParams(params)) ? '?' + new URLSearchParams(params) : ''}`; },
     // oppdater adressen uten å laste siden på nytt, så den kan bokmerkes og deles
     setParams(params) {
-      const name = (location.hash.replace(/^#\/?/, '') || 'overview').split(/[/?]/)[0];
       const q = String(new URLSearchParams(params));
-      history.replaceState(null, '', `#/${name}${q ? '?' + q : ''}`);
+      history.replaceState(null, '', `#/${pageName()}${q ? '?' + q : ''}`);
+      shownHash = location.hash;
     },
     can(role) { return !!me.user && (RANK[me.user.role] || 0) >= RANK[role]; },
     serverStatus(ok, text) {

@@ -89,6 +89,9 @@ test('historikk', async t => {
     assert.equal(nl.length, 1);
     assert.equal(nl[0][0], end - 1000 + 1, 'null rett etter den forrige øktens siste punkt');
     assert.deepEqual(pts.slice(-2), [[later, 1], [later + 1000, 2]]);
+    // et brudd som var over før tidsrommet, gir ikke null i det (før: null rett etter from, så det så ut som et hull)
+    r = await q(['kv_1.speed'], later + 500, later + 2000, 500);
+    assert.deepEqual(r.json().series['kv_1.speed'], [[later + 500, 1], [later + 1000, 2]]);
   });
 
   await t.test('sammendragene og lange tidsrom', async () => {
