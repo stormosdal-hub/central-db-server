@@ -105,7 +105,8 @@ test('mottaket', async t => {
       [{ series: { 'kv_1.x': [[now + 2 * 86400000, 2]] } }, /more than a day ahead/],
       [{ series: { 'kv_1.x': [[now, 'tekst']] } }, /number or null/],
       [{ series: { 'kv_1.x': [[now, 1, 9]] } }, /q is 0, 1, 2 or 3/],
-      [{ series: { 'kv_1.x': [[now.toString(), 1]] } }, /whole number of milliseconds/],
+      [{ series: { 'kv_1.x': [[now.toString(), 1]] } }, /a number of milliseconds/],
+      [{ gaps: [{ from: NaN, to: now }] }, /a number of milliseconds/],
       [{ series: { 'kv_1.x': [now, 1] } }, /a point is/],
       [{ text: { 'kv_1.x': [[now, 5]] } }, /text or null/],
       [{ events: [{ ts: now }] }, /message is missing/],
@@ -123,6 +124,28 @@ test('mottaket', async t => {
     assert.equal(r.statusCode, 400);
     assert.match(r.json().error, /not valid JSON/);
     assert.equal((await T.db.query('SELECT count(*) AS n FROM batch WHERE seq = 9')).rows[0].n, 0);
+  });
+
+  // recorderen flytter tidene med et hopp målt med performance.now() når klokka hopper (hmi-core recorder.js
+  // clockJump), så de kan få desimaler. Før ble batchen avvist, og hullet kom tilbake i hver batch etter.
+  await t.test('/ingest: tider med desimaler etter et klokkehopp rundes av, ikke avvist', async () => {
+    const t0 = now - 1200000 + 0.4375;
+    const b = { vehicle: 'kv07', boot: BOOT, seq: 10, clock: { synced: true },
+      series: { 'kv_1.speed': [[t0, 1], [t0 + 1000.5, 2]] }, text: { 'kv_1.state': [[t0 + 0.6, 'kjører']] },
+      events: [{ ts: t0 + 2000.25, source: 'rec', severity: 'info', message: 'The clock jumped forward by 3742.1 s' }],
+      gaps: [{ from: t0 - 60000.7, to: t0 - 1000.2, tags: '*', reason: 'rejected' }] };
+    const r = await T.post('/ingest', b);
+    assert.equal(r.statusCode, 200, r.body);
+    const base = Math.round(t0);
+    const pts = (await T.db.query(`SELECT (extract(epoch FROM ts) * 1000)::bigint AS t, value FROM sample s JOIN tag g ON g.id = s.tag_id
+      WHERE g.name = 'kv_1.speed' AND ts >= to_timestamp($1 / 1000.0) AND ts < to_timestamp($2 / 1000.0) ORDER BY ts`, [base - 1, base + 2000])).rows;
+    assert.deepEqual(pts.map(p => [p.t, p.value]), [[base, 1], [Math.round(t0 + 1000.5), 2]]);
+    const txt = (await T.db.query("SELECT (extract(epoch FROM ts) * 1000)::bigint AS t FROM sample_text WHERE value = 'kjører'")).rows;
+    assert.deepEqual(txt.map(x => x.t), [Math.round(t0 + 0.6)]);
+    const ev = (await T.db.query("SELECT (extract(epoch FROM ts) * 1000)::bigint AS t FROM event WHERE message LIKE 'The clock jumped%'")).rows;
+    assert.deepEqual(ev.map(x => x.t), [Math.round(t0 + 2000.25)]);
+    const gap = (await T.db.query("SELECT (extract(epoch FROM from_ts) * 1000)::bigint AS f, (extract(epoch FROM to_ts) * 1000)::bigint AS t FROM gap WHERE reason = 'rejected'")).rows;
+    assert.deepEqual(gap.map(g => [g.f, g.t]), [[Math.round(t0 - 60000.7), Math.round(t0 - 1000.2)]]);
   });
 
   await t.test('/ingest: klokka ikke synkronisert merkes på hvert punkt', async () => {
